@@ -1,0 +1,85 @@
+"""Flag checker — verifies CLI flags referenced in content exist in --help."""
+from __future__ import annotations
+
+import re
+import subprocess
+from typing import Dict, FrozenSet, List
+
+from attune_verify.result import Finding, FindingKind
+
+_FLAG_RE = re.compile(r"`(--[\w-]+)`")
+
+
+def check_flags(
+    content: str,
+    help_commands: Dict[str, str],
+    allowed_help_cmds: FrozenSet[str],
+) -> List[Finding]:
+    """Verify flags referenced in content exist in command --help output.
+
+    Security: only invokes --help for commands in allowed_help_cmds.
+    A flag for an unknown command yields a warning, not a silent pass.
+
+    Args:
+        content: Generated content to scan for flag references.
+        help_commands: Pre-captured --help text keyed by command name.
+        allowed_help_cmds: Commands safe to invoke at runtime.
+
+    Returns:
+        List of findings for unverifiable or unknown flags.
+    """
+    findings: List[Finding] = []
+    # Find patterns like "`--flag`" or "`command --flag`"
+    for match in _FLAG_RE.finditer(content):
+        flag = match.group(1)
+        surrounding = content[max(0, match.start() - 30): match.start()]
+        cmd = _guess_command(surrounding)
+        help_text = _get_help(cmd, help_commands, allowed_help_cmds)
+        if help_text is None:
+            findings.append(Finding(
+                kind=FindingKind.UNKNOWN_FLAG,
+                detail=(
+                    f"Flag '{flag}' could not be verified "
+                    f"(command '{cmd}' not in allowed_help_cmds)"
+                ),
+                evidence=match.group(0),
+                severity="warning",
+            ))
+        elif flag not in help_text:
+            findings.append(Finding(
+                kind=FindingKind.UNKNOWN_FLAG,
+                detail=f"Flag '{flag}' not found in '{cmd} --help'",
+                evidence=match.group(0),
+                severity="error",
+            ))
+    return findings
+
+
+def _guess_command(preceding: str) -> str:
+    """Heuristically extract the command name preceding a flag."""
+    words = preceding.strip().split()
+    for word in reversed(words):
+        cleaned = word.strip("`")
+        if cleaned and not cleaned.startswith("-"):
+            return cleaned
+    return "unknown"
+
+
+def _get_help(
+    cmd: str,
+    help_commands: Dict[str, str],
+    allowed_help_cmds: FrozenSet[str],
+) -> str | None:
+    """Return help text or None if the command cannot be introspected."""
+    if cmd in help_commands:
+        return help_commands[cmd]
+    if cmd in allowed_help_cmds:
+        result = subprocess.run(
+            [cmd, "--help"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        return result.stdout + result.stderr
+    return None
