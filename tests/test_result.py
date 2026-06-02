@@ -12,7 +12,7 @@ from attune_verify.result import (
 def test_finding_frozen():
     f = Finding(kind=FindingKind.DEAD_LINK, detail="test", evidence="x")
     with pytest.raises(Exception):
-        object.__setattr__(f, "detail", "mutated")
+        f.detail = "mutated"  # type: ignore[misc]
 
 
 def test_verify_result_ok_no_errors():
