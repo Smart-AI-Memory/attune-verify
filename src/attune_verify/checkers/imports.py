@@ -1,8 +1,8 @@
 """Import checker — verifies Python imports in code fences resolve."""
+
 from __future__ import annotations
 
 import ast
-import importlib.util
 import subprocess
 import sys
 from typing import List
@@ -16,6 +16,10 @@ def check_imports(
     env_python: str = sys.executable,
 ) -> List[Finding]:
     """Resolve every import in Python code fences against env_python.
+
+    Each import is resolved by its FULL dotted module path, so a private
+    submodule of an installed package (``from pkg.fake_sub import X``) is
+    flagged — not just a fully-unknown top-level package.
 
     Args:
         fences: Code fences extracted from generated content.
@@ -35,29 +39,42 @@ def check_imports(
         for node in ast.walk(tree):
             module = _module_from_node(node)
             if module and not _resolves(module, env_python):
-                findings.append(Finding(
-                    kind=FindingKind.UNRESOLVED_IMPORT,
-                    detail=f"Import '{module}' does not resolve in {env_python}",
-                    evidence=f"import {module}",
-                    location=f"line {fence.line}" if fence.line else None,
-                    severity="error",
-                ))
+                findings.append(
+                    Finding(
+                        kind=FindingKind.UNRESOLVED_IMPORT,
+                        detail=f"Import '{module}' does not resolve in {env_python}",
+                        evidence=f"import {module}",
+                        location=f"line {fence.line}" if fence.line else None,
+                        severity="error",
+                    )
+                )
     return findings
 
 
 def _module_from_node(node: ast.AST) -> str | None:
+    """Return the FULL dotted module path of an import node.
+
+    ``find_spec`` resolves submodules (e.g. ``attune.ops._readers``), so
+    returning the full path — not just the top-level package — catches a
+    private submodule of an *installed* package that does not actually
+    exist. Returning only ``attune`` would let ``from attune.ops._readers
+    import X`` pass when ``attune`` is installed (the v0.1.0 gap).
+    """
     if isinstance(node, ast.Import):
-        return node.names[0].name.split(".")[0] if node.names else None
+        return node.names[0].name if node.names else None
     if isinstance(node, ast.ImportFrom) and node.module:
-        return node.module.split(".")[0]
+        return node.module
     return None
 
 
 def _resolves(module: str, env_python: str) -> bool:
     """Return True if module is importable in env_python."""
     result = subprocess.run(
-        [env_python, "-c", f"import importlib.util; "
-         f"print(importlib.util.find_spec('{module}') is not None)"],
+        [
+            env_python,
+            "-c",
+            f"import importlib.util; " f"print(importlib.util.find_spec('{module}') is not None)",
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
