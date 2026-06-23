@@ -33,4 +33,5 @@ jobs:
         run: python scripts/mutation_gate.py 0.75
       - name: Show survivors (informational)
         if: always()
-        run: mutmut results | grep ': survived' || true
+        run: |
+          mutmut results | grep ': survived' || true
