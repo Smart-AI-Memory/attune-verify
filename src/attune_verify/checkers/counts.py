@@ -1,4 +1,5 @@
 """Count checker — verifies numeric claims match caller-supplied sources."""
+
 from __future__ import annotations
 
 from typing import Callable, Dict, List, Union
@@ -33,16 +34,19 @@ def check_counts(
     for label, value in count_sources.items():
         resolved_sources[label] = value() if callable(value) else value
 
-    expected_values = set(resolved_sources.values())
     findings: List[Finding] = []
 
     for claim in claims:
-        if claim.value not in expected_values:
-            # Check if it could be a mismatch against a named source
-            close_label = _find_close_label(claim.context, resolved_sources)
-            if close_label is not None:
-                expected = resolved_sources[close_label]
-                findings.append(Finding(
+        # Match each claim to the source its surrounding text names, then
+        # compare against THAT source's value. Comparing against a global set
+        # of all values lets a claim pass on a coincidental match with an
+        # unrelated source (e.g. "12 tests" passing because some other source
+        # also equals 12) — cross-contamination.
+        close_label = _find_close_label(claim.context, resolved_sources)
+        if close_label is not None and claim.value != resolved_sources[close_label]:
+            expected = resolved_sources[close_label]
+            findings.append(
+                Finding(
                     kind=FindingKind.COUNT_MISMATCH,
                     detail=(
                         f"Count {claim.value} doesn't match "
@@ -51,7 +55,8 @@ def check_counts(
                     evidence=claim.context,
                     location=f"line {claim.line}" if claim.line else None,
                     severity="error",
-                ))
+                )
+            )
     return findings
 
 

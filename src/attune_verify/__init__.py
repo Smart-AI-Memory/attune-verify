@@ -12,6 +12,7 @@ Public API::
 """
 from __future__ import annotations
 
+from attune_verify._verify import verify
 from attune_verify.context import VerifyContext
 from attune_verify.result import (
     Finding,
@@ -20,7 +21,6 @@ from attune_verify.result import (
     VerifyResult,
     raise_if_failed,
 )
-from attune_verify._verify import verify
 
 __version__ = "0.2.0"
 __all__ = [

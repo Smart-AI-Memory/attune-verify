@@ -37,34 +37,43 @@ def check_imports(
         except SyntaxError:
             continue
         for node in ast.walk(tree):
-            module = _module_from_node(node)
-            if module and not _resolves(module, env_python):
-                findings.append(
-                    Finding(
-                        kind=FindingKind.UNRESOLVED_IMPORT,
-                        detail=f"Import '{module}' does not resolve in {env_python}",
-                        evidence=f"import {module}",
-                        location=f"line {fence.line}" if fence.line else None,
-                        severity="error",
+            for module in _modules_from_node(node):
+                if not _resolves(module, env_python):
+                    findings.append(
+                        Finding(
+                            kind=FindingKind.UNRESOLVED_IMPORT,
+                            detail=f"Import '{module}' does not resolve in {env_python}",
+                            evidence=f"import {module}",
+                            location=f"line {fence.line}" if fence.line else None,
+                            severity="error",
+                        )
                     )
-                )
     return findings
 
 
-def _module_from_node(node: ast.AST) -> str | None:
-    """Return the FULL dotted module path of an import node.
+def _modules_from_node(node: ast.AST) -> list[str]:
+    """Return every FULL dotted module path imported by an import node.
 
     ``find_spec`` resolves submodules (e.g. ``attune.ops._readers``), so
     returning the full path — not just the top-level package — catches a
     private submodule of an *installed* package that does not actually
     exist. Returning only ``attune`` would let ``from attune.ops._readers
     import X`` pass when ``attune`` is installed (the v0.1.0 gap).
+
+    A single statement may import several modules (``import a, b, c``); each
+    is returned so a fake name hiding behind a real one is still flagged.
+    Relative imports (``from . import x``, ``from .pkg import y``) cannot be
+    resolved outside their package context and are skipped — flagging them
+    would be a false positive.
     """
     if isinstance(node, ast.Import):
-        return node.names[0].name if node.names else None
-    if isinstance(node, ast.ImportFrom) and node.module:
-        return node.module
-    return None
+        return [alias.name for alias in node.names]
+    if isinstance(node, ast.ImportFrom):
+        if node.level and node.level > 0:  # relative import — unresolvable here
+            return []
+        if node.module:
+            return [node.module]
+    return []
 
 
 def _resolves(module: str, env_python: str) -> bool:

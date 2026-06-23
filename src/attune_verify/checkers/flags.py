@@ -1,4 +1,5 @@
 """Flag checker — verifies CLI flags referenced in content exist in --help."""
+
 from __future__ import annotations
 
 import re
@@ -32,27 +33,41 @@ def check_flags(
     # Find patterns like "`--flag`" or "`command --flag`"
     for match in _FLAG_RE.finditer(content):
         flag = match.group(1)
-        surrounding = content[max(0, match.start() - 30): match.start()]
+        surrounding = content[max(0, match.start() - 30) : match.start()]
         cmd = _guess_command(surrounding)
         help_text = _get_help(cmd, help_commands, allowed_help_cmds)
         if help_text is None:
-            findings.append(Finding(
-                kind=FindingKind.UNKNOWN_FLAG,
-                detail=(
-                    f"Flag '{flag}' could not be verified "
-                    f"(command '{cmd}' not in allowed_help_cmds)"
-                ),
-                evidence=match.group(0),
-                severity="warning",
-            ))
-        elif flag not in help_text:
-            findings.append(Finding(
-                kind=FindingKind.UNKNOWN_FLAG,
-                detail=f"Flag '{flag}' not found in '{cmd} --help'",
-                evidence=match.group(0),
-                severity="error",
-            ))
+            findings.append(
+                Finding(
+                    kind=FindingKind.UNKNOWN_FLAG,
+                    detail=(
+                        f"Flag '{flag}' could not be verified "
+                        f"(command '{cmd}' not in allowed_help_cmds)"
+                    ),
+                    evidence=match.group(0),
+                    severity="warning",
+                )
+            )
+        elif not _flag_in_help(flag, help_text):
+            findings.append(
+                Finding(
+                    kind=FindingKind.UNKNOWN_FLAG,
+                    detail=f"Flag '{flag}' not found in '{cmd} --help'",
+                    evidence=match.group(0),
+                    severity="error",
+                )
+            )
     return findings
+
+
+def _flag_in_help(flag: str, help_text: str) -> bool:
+    """Return True if flag appears in help as a whole token.
+
+    A plain substring test gives false negatives: ``--ver`` would pass
+    because ``--verbose`` contains it. Require the flag not be immediately
+    followed by another flag character (word char or hyphen).
+    """
+    return re.search(re.escape(flag) + r"(?![\w-])", help_text) is not None
 
 
 def _guess_command(preceding: str) -> str:

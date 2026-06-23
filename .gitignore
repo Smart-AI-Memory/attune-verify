@@ -209,6 +209,11 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# mutmut (mutation testing) working dir + stats
+mutants/
+mutmut-stats.json
+.mutmut-cache
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

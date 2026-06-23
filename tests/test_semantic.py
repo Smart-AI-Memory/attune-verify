@@ -1,5 +1,5 @@
 """Tests for the semantic layer (T4)."""
-from attune_verify import verify, VerifyContext
+from attune_verify import VerifyContext, verify
 from attune_verify.result import FindingKind
 from attune_verify.semantic.protocol import Judge, SemanticVerdict
 
