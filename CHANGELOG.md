@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-22
+
+Verifier-accuracy fixes — `verify()` now catches three hallucination
+classes it previously missed and stops one false positive. Surfaced by a
+new labeled corpus + mutation-testing harness (dev-only, no runtime effect).
+
 ### Fixed
 
 - **Import checker now flags every name in a multi-import.** `import os,
