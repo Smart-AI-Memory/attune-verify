@@ -5,6 +5,37 @@ All notable changes to attune-verify are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Import checker now flags every name in a multi-import.** `import os,
+  fake_mod` previously checked only the first name, letting a fake hide
+  behind a real one. All names are now resolved.
+- **Flag checker uses whole-token matching.** A substring check passed a
+  hallucinated `--ver` because real help contained `--verbose`; flags are
+  now matched on a word boundary.
+- **Count checker matches each claim to its own source.** Comparing against
+  the global set of all source values let a claim pass on a coincidental
+  match with an unrelated source (e.g. "12 tests" passing because some other
+  source equalled 12). Each claim is now compared against the source its
+  surrounding text names.
+- **Relative imports are no longer false-flagged.** `from .helpers import x`
+  cannot be resolved out of package context and is skipped.
+
+### Added
+
+- **Labeled verification corpus + precision/recall gate** (`tests/corpus/`):
+  deterministic clean + hallucinated cases (including the three evasions
+  above) scored on precision/recall, gated at ≥ 0.95 each.
+- **Mutation testing** via `mutmut` (`scripts/mutation_gate.py`,
+  `.github/workflows/mutation.yml`) — kill rate ≈ 80% on the deterministic
+  core, gated at 0.75.
+- **`tests.yml` CI** — the first real test workflow (matrix 3.10–3.13 on
+  Linux + a macOS/Windows smoke), running ruff + pytest with coverage.
+- Behavioral tests for the exception-isolation, semantic-orchestration,
+  link/flag warning + subprocess, and extractor edge-case paths.
+
 ## [0.2.0] - 2026-06-09
 
 ### Changed

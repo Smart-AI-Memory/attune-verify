@@ -1,5 +1,9 @@
 """Tests for the data model (T2)."""
+
+from dataclasses import FrozenInstanceError
+
 import pytest
+
 from attune_verify.result import (
     Finding,
     FindingKind,
@@ -11,28 +15,28 @@ from attune_verify.result import (
 
 def test_finding_frozen():
     f = Finding(kind=FindingKind.DEAD_LINK, detail="test", evidence="x")
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         f.detail = "mutated"  # type: ignore[misc]
 
 
 def test_verify_result_ok_no_errors():
-    r = VerifyResult(findings=[
-        Finding(kind=FindingKind.DEAD_LINK, detail="w", evidence="x", severity="warning")
-    ])
+    r = VerifyResult(
+        findings=[Finding(kind=FindingKind.DEAD_LINK, detail="w", evidence="x", severity="warning")]
+    )
     assert r.ok is True
 
 
 def test_verify_result_not_ok_with_error():
-    r = VerifyResult(findings=[
-        Finding(kind=FindingKind.DEAD_LINK, detail="e", evidence="x", severity="error")
-    ])
+    r = VerifyResult(
+        findings=[Finding(kind=FindingKind.DEAD_LINK, detail="e", evidence="x", severity="error")]
+    )
     assert r.ok is False
 
 
 def test_raise_if_failed_raises_on_error():
-    r = VerifyResult(findings=[
-        Finding(kind=FindingKind.DEAD_LINK, detail="e", evidence="x", severity="error")
-    ])
+    r = VerifyResult(
+        findings=[Finding(kind=FindingKind.DEAD_LINK, detail="e", evidence="x", severity="error")]
+    )
     with pytest.raises(VerificationError) as exc_info:
         raise_if_failed(r)
     assert exc_info.value.result is r
