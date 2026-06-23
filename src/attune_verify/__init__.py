@@ -10,6 +10,7 @@ Public API::
     from attune_verify import VerificationError, raise_if_failed
     from attune_verify.semantic.protocol import Judge, SemanticVerdict
 """
+
 from __future__ import annotations
 
 from attune_verify._verify import verify
@@ -22,7 +23,7 @@ from attune_verify.result import (
     raise_if_failed,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "verify",
     "VerifyContext",
