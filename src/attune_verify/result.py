@@ -2,6 +2,7 @@
 
 Public: FindingKind, Finding, VerifyResult, VerificationError, raise_if_failed
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,13 +11,15 @@ from typing import List
 
 
 class FindingKind(str, Enum):
-    """Typed kinds matching the four verification modes."""
+    """Typed kinds: the four verification modes, the semantic layer, and
+    CHECKER_ERROR for infrastructure failures inside a checker itself."""
 
     UNRESOLVED_IMPORT = "unresolved_import"
     UNKNOWN_FLAG = "unknown_flag"
     DEAD_LINK = "dead_link"
     COUNT_MISMATCH = "count_mismatch"
     SEMANTIC = "semantic"
+    CHECKER_ERROR = "checker_error"
 
 
 @dataclass(frozen=True)

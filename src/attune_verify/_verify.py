@@ -1,4 +1,5 @@
 """Core verify() orchestration — runs all checkers and the semantic layer."""
+
 from __future__ import annotations
 
 import logging
@@ -54,6 +55,7 @@ def verify(content: str, context: VerifyContext) -> VerifyResult:
 # Per-checker wrappers — each catches exceptions and surfaces as a warning
 # ---------------------------------------------------------------------------
 
+
 def _check_imports(content: str, context: VerifyContext) -> List[Finding]:
     fences = extract_code_fences(content)
     return check_imports(fences, env_python=context.env_python)
@@ -92,12 +94,14 @@ def _run_checker(
     except Exception as exc:  # noqa: BLE001
         # INTENTIONAL: individual checker failures must not abort the run.
         logger.exception("checker '%s' raised: %s", name, exc)
-        result.findings.append(Finding(
-            kind=FindingKind.UNRESOLVED_IMPORT,  # closest kind for infra error
-            detail=f"Checker '{name}' failed: {exc}",
-            evidence="",
-            severity="warning",
-        ))
+        result.findings.append(
+            Finding(
+                kind=FindingKind.CHECKER_ERROR,
+                detail=f"Checker '{name}' failed: {exc}",
+                evidence="",
+                severity="warning",
+            )
+        )
 
 
 def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) -> None:
@@ -105,15 +109,17 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
     from attune_verify.semantic.protocol import Judge  # noqa: PLC0415
 
     if context.judge is None or not isinstance(context.judge, Judge):
-        result.findings.append(Finding(
-            kind=FindingKind.SEMANTIC,
-            detail=(
-                "Semantic layer requested (context.semantic=True) "
-                "but no judge was provided in VerifyContext.judge"
-            ),
-            evidence="",
-            severity="warning",
-        ))
+        result.findings.append(
+            Finding(
+                kind=FindingKind.SEMANTIC,
+                detail=(
+                    "Semantic layer requested (context.semantic=True) "
+                    "but no judge was provided in VerifyContext.judge"
+                ),
+                evidence="",
+                severity="warning",
+            )
+        )
         return
 
     try:
@@ -125,18 +131,22 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
         result.semantic_ran = True
         if not verdict.faithful:
             for issue in verdict.issues:
-                result.findings.append(Finding(
-                    kind=FindingKind.SEMANTIC,
-                    detail=issue,
-                    evidence="",
-                    severity="error",
-                ))
+                result.findings.append(
+                    Finding(
+                        kind=FindingKind.SEMANTIC,
+                        detail=issue,
+                        evidence="",
+                        severity="error",
+                    )
+                )
     except Exception as exc:  # noqa: BLE001
         # INTENTIONAL: semantic layer is opt-in; failures degrade gracefully.
         logger.exception("semantic judge raised: %s", exc)
-        result.findings.append(Finding(
-            kind=FindingKind.SEMANTIC,
-            detail=f"Semantic judge failed: {exc}",
-            evidence="",
-            severity="warning",
-        ))
+        result.findings.append(
+            Finding(
+                kind=FindingKind.SEMANTIC,
+                detail=f"Semantic judge failed: {exc}",
+                evidence="",
+                severity="warning",
+            )
+        )

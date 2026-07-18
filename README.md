@@ -43,7 +43,10 @@ verify checks *"does this named thing exist?"*
 
 ## Status
 
-Pre-alpha — spec complete, implementation in progress.
+Alpha — the deterministic core (imports, flags, links, counts) is shipped
+and guarded by a labeled precision/recall corpus (gated ≥ 0.95 each) and
+mutation testing (gated ≥ 0.75). The LLM semantic layer is optional via
+the `[rag]` extra.
 
 ## License
 

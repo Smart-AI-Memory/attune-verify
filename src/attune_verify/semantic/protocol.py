@@ -3,6 +3,7 @@
 The core library never imports attune-rag directly. Any object satisfying
 Judge can be injected: the built-in rag adapter, a skill-judge, or a fake.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -22,8 +23,9 @@ class SemanticVerdict:
 class Judge(Protocol):
     """Protocol that any semantic judge must satisfy.
 
-    Signature matches attune-rag's FaithfulnessJudge.score() so the
-    rag adapter is near-trivial (verified against rag 0.2.0).
+    The signature mirrors attune-rag's FaithfulnessJudge.score(), but the
+    return type differs: FaithfulnessResult has no boolean verdict, so the
+    rag adapter derives ``faithful`` from its unsupported_claims.
     """
 
     def score(

@@ -2,12 +2,16 @@
 
 The caller declares WHERE truth comes from; verify performs the lookups.
 """
+
 from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, FrozenSet, Optional, Union
+from typing import TYPE_CHECKING, Callable, Dict, FrozenSet, Optional, Union
+
+if TYPE_CHECKING:
+    from attune_verify.semantic.protocol import Judge
 
 
 @dataclass
@@ -39,8 +43,6 @@ class VerifyContext:
     env_python: str = field(default_factory=lambda: sys.executable)
     help_commands: Dict[str, str] = field(default_factory=dict)
     allowed_help_cmds: FrozenSet[str] = field(default_factory=frozenset)
-    count_sources: Dict[str, Union[int, Callable[[], int]]] = field(
-        default_factory=dict
-    )
-    judge: object = None  # Judge protocol instance
+    count_sources: Dict[str, Union[int, Callable[[], int]]] = field(default_factory=dict)
+    judge: Optional["Judge"] = None
     semantic: bool = False
