@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "attune-verify"
-version = "0.2.1"
+version = "0.2.2"
 description = "Generation fact-checker for the attune-* family. Verifies named entities in LLM output actually exist — imports import, CLI flags are real, links resolve, counts match source."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
