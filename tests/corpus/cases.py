@@ -128,6 +128,23 @@ CASES: tuple[CorpusCase, ...] = (
         help_commands={"mytool": "Options:\n  --verbose  Be loud\n  --help  Show help\n"},
         expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "--nonexistent"),),
     ),
+    CorpusCase(
+        name="clean_year_near_count_keyword",
+        label="clean",
+        # 2026 is a year, not a widget count — a keyword merely nearby must
+        # not turn it into a COUNT_MISMATCH (regression for a false positive).
+        content="Released 2026 versions of the widgets.",
+        count_sources={"widgets": 12},
+    ),
+    CorpusCase(
+        name="year_valued_count_still_checked",
+        label="hallucinated",
+        # A year-like value directly before the keyword IS a count claim and
+        # must still be compared — the year guard must not cost recall here.
+        content="There are 2026 widgets in stock.",
+        count_sources={"widgets": 12},
+        expected=(ExpectedFinding(FindingKind.COUNT_MISMATCH, "2026"),),
+    ),
     # --------------------------------------------------------------- evasion
     CorpusCase(
         name="evasion_multi_import",

@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **rag adapter no longer crashes on every call.** It read
+  `result.is_faithful`, a field attune-rag's `FaithfulnessResult` has never
+  had (its verdict is score/claims-based), so the semantic layer always
+  degraded to a warning. `faithful` is now derived from
+  `unsupported_claims`; the adapter also raises a clear error when called
+  from inside a running event loop instead of asyncio.run's generic one.
+- **Years near a count keyword no longer false-positive.** "Released 2026
+  versions of the widgets" flagged 2026 against the `widgets` source. Values
+  in 1900–2099 are now compared only when the keyword directly follows the
+  number ("2026 widgets" is still checked).
+- **Count-source keywords match on a word boundary.** "test" no longer
+  matches inside "latest" (plural drift still matches: "widget" ~ "widgets").
+- **Link targets can no longer escape `project_root`.** `../`-traversal that
+  happens to hit a real file outside the root previously passed silently; it
+  now yields a warning (unverifiable as a project link). Site-absolute
+  targets (`/docs/page.md`) are resolved under `project_root` instead of the
+  filesystem root.
+- `check_counts` docstring claimed unmatched claims yield warnings; they are
+  (and were) silently skipped — the docstring now says so.
 - **Fences with an info string are now extracted.** ` ```python title="ex.py" `
   previously matched nothing, so everything inside the fence went unchecked —
   a silent false negative for any MkDocs/Docusaurus-style generated doc.
@@ -22,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flags checker, collapsing every other flag in the document into a single
   checker-level warning; same for a bad `env_python` in the import checker.
   Both now degrade per-flag / per-import (warning) and keep checking the rest.
+
+### Added
+
+- **`FindingKind.CHECKER_ERROR`** — checker infrastructure failures carry
+  their own kind instead of repurposing `UNRESOLVED_IMPORT`.
+- Import resolution is cached per `verify()` call — repeated imports of the
+  same module across fences no longer re-launch the interpreter.
+- `VerifyContext.judge` is typed `Optional[Judge]` (was `object`).
+- CI now enforces `black --check` alongside ruff; the codebase is formatted.
 
 ## [0.2.1] - 2026-06-22
 

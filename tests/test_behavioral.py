@@ -52,6 +52,8 @@ def test_checker_exception_becomes_warning_and_run_continues(monkeypatch):
     assert len(infra) == 1
     assert "kaboom" in infra[0].detail
     assert infra[0].severity == "warning"
+    # Infra failures carry their own kind — not a repurposed content kind.
+    assert infra[0].kind is FindingKind.CHECKER_ERROR
     # The failed checker is NOT recorded as checked, but the others are.
     assert "imports" not in result.checked
     assert {"flags", "links", "counts"} <= set(result.checked)
@@ -161,6 +163,33 @@ def test_links_dead_file_is_error(tmp_path):
     assert "missing.md" in findings[0].detail
 
 
+def test_links_traversal_outside_root_is_warning_even_if_file_exists(tmp_path):
+    # ../-escapes can hit a real file on disk (e.g. /etc/passwd) — that must
+    # not read as a verified project link. Unverifiable -> warning, never
+    # a silent pass.
+    outside = tmp_path / "outside.md"
+    outside.write_text("x", encoding="utf-8")
+    root = tmp_path / "project"
+    root.mkdir()
+    links = [MarkdownLink(text="up", target="../outside.md", line=1)]
+    findings = check_links(links, project_root=root)
+    assert len(findings) == 1
+    assert findings[0].severity == "warning"
+    assert "outside project_root" in findings[0].detail
+
+
+def test_links_site_absolute_target_is_root_relative(tmp_path):
+    # /docs/page.md means "from the project root" in generated docs — it must
+    # be resolved under project_root, not against the filesystem root.
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "page.md").write_text("x", encoding="utf-8")
+    assert check_links([MarkdownLink(text="p", target="/docs/page.md", line=1)], tmp_path) == []
+
+    findings = check_links([MarkdownLink(text="pw", target="/etc/passwd", line=1)], tmp_path)
+    assert len(findings) == 1
+    assert findings[0].severity == "error"  # root/etc/passwd does not exist
+
+
 # ---------------------------------------------------------------------------
 # Flag checker branches
 # ---------------------------------------------------------------------------
@@ -258,6 +287,27 @@ def test_bare_fence_non_python_is_skipped():
     assert check_imports(fences, env_python=sys.executable) == []
 
 
+def test_repeated_imports_resolved_once_per_call(monkeypatch):
+    import attune_verify.checkers.imports as imports_mod
+
+    calls = []
+    real_run = imports_mod.subprocess.run
+
+    def counting_run(*args, **kwargs):
+        calls.append(args[0])
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(imports_mod.subprocess, "run", counting_run)
+    fences = [
+        CodeFence(language="python", content="import os\nimport os.path\n", line=1),
+        CodeFence(language="python", content="import os\n", line=5),
+    ]
+    findings = check_imports(fences, env_python=sys.executable)
+    assert findings == []
+    # os appears twice but resolves once; os.path is distinct.
+    assert len(calls) == 2
+
+
 # ---------------------------------------------------------------------------
 # Extractors: line numbers, language defaulting, context windows
 # ---------------------------------------------------------------------------
@@ -318,6 +368,35 @@ def test_count_source_callable_is_resolved():
     assert len(findings) == 1
     assert findings[0].kind is FindingKind.COUNT_MISMATCH
     assert "9" in findings[0].detail
+
+
+def test_count_label_matches_on_word_boundary_only():
+    # "test" must not match inside "latest" — that false-positived clean docs.
+    claims = [NumericClaim(value=99, context="get the latest 99 release notes", line=1)]
+    assert check_counts(claims, count_sources={"test": 50}) == []
+    # A leading boundary still allows plural drift: "widget" matches "widgets".
+    claims = [NumericClaim(value=99, context="there are 99 widgets here", line=1)]
+    assert len(check_counts(claims, count_sources={"widget": 12})) == 1
+
+
+def test_year_near_label_is_skipped_unless_adjacent():
+    # A year with a source keyword merely nearby is a date, not a count.
+    claims = [NumericClaim(value=2026, context="released 2026 versions of the widgets", line=1)]
+    assert check_counts(claims, count_sources={"widgets": 12}) == []
+    # But "2026 widgets" IS a widget count and must still be compared.
+    claims = [NumericClaim(value=2026, context="there are 2026 widgets in stock", line=1)]
+    findings = check_counts(claims, count_sources={"widgets": 12})
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_year_guard_boundaries():
+    # Outside 1900-2099 the window match suffices; inside it needs adjacency.
+    for value, expected_findings in ((1899, 1), (1900, 0), (2099, 0), (2100, 1)):
+        claims = [
+            NumericClaim(value=value, context=f"released {value} builds of the widgets", line=1)
+        ]
+        assert len(check_counts(claims, count_sources={"widgets": 12})) == expected_findings
 
 
 def test_count_source_callable_matching_value_is_clean():

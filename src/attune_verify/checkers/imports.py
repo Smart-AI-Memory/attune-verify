@@ -29,6 +29,9 @@ def check_imports(
         List of findings for unresolvable imports.
     """
     findings: List[Finding] = []
+    # Each resolution is a subprocess; repeated imports of the same module
+    # across fences are common, so resolve each module once per call.
+    resolution_cache: dict[str, bool] = {}
     for fence in fences:
         # "" is a bare fence: LLM output routinely omits the language tag, so
         # parse speculatively — non-Python content fails ast.parse and is skipped.
@@ -42,7 +45,11 @@ def check_imports(
             for module in _modules_from_node(node):
                 location = f"line {fence.line}" if fence.line else None
                 try:
-                    resolved = _resolves(module, env_python)
+                    if module in resolution_cache:
+                        resolved = resolution_cache[module]
+                    else:
+                        resolved = _resolves(module, env_python)
+                        resolution_cache[module] = resolved
                 except (OSError, subprocess.TimeoutExpired) as exc:
                     # Resolution infrastructure failed (bad env_python, timeout).
                     # Degrade per-import — the remaining imports must still run.
