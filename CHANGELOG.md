@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-17
+
+Accuracy + reliability patch from a full library review: five silent
+false-negative classes closed, two false-positive classes stopped, and
+the `[rag]` semantic layer works for the first time (its adapter read a
+field attune-rag never had and crashed on every call).
+
 ### Fixed
 
 - **rag adapter no longer crashes on every call.** It read
