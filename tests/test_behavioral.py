@@ -17,6 +17,7 @@ import pytest
 from attune_verify import VerifyContext, verify
 from attune_verify import _verify as verify_mod
 from attune_verify._extract import (
+    CodeFence,
     MarkdownLink,
     NumericClaim,
     extract_code_fences,
@@ -25,6 +26,7 @@ from attune_verify._extract import (
 )
 from attune_verify.checkers.counts import check_counts
 from attune_verify.checkers.flags import _get_help, _guess_command, check_flags
+from attune_verify.checkers.imports import check_imports
 from attune_verify.checkers.links import check_links
 from attune_verify.result import (
     Finding,
@@ -192,6 +194,23 @@ def test_flag_for_unknown_command_is_warning():
     assert findings[0].severity == "warning"
 
 
+def test_missing_allowed_command_degrades_per_flag_not_per_checker():
+    # One allow-listed-but-missing binary must not abort the checker: its flag
+    # yields a warning while the cached-help flag is still verified (error).
+    findings = check_flags(
+        "Run `no_such_cmd_zzz` `--whatever`; also try `tool` `--ghost`.",
+        help_commands={"tool": "--verbose  be loud\n"},
+        allowed_help_cmds=frozenset(["no_such_cmd_zzz"]),
+    )
+    severities = {f.evidence: f.severity for f in findings}
+    assert severities["`--whatever`"] == "warning"
+    assert severities["`--ghost`"] == "error"
+
+
+def test_get_help_missing_binary_returns_none_instead_of_raising():
+    assert _get_help("no_such_cmd_zzz", {}, frozenset(["no_such_cmd_zzz"])) is None
+
+
 def test_guess_command_picks_nearest_non_flag_token():
     assert _guess_command("run the `tool` ") == "tool"
     assert _guess_command("nothing useful ") == "useful"
@@ -214,6 +233,32 @@ def test_get_help_allowed_command_shells_out():
 
 
 # ---------------------------------------------------------------------------
+# Import checker branches
+# ---------------------------------------------------------------------------
+def test_unrunnable_env_python_degrades_per_import_not_per_checker():
+    # A bad interpreter path must not abort the checker: every import gets its
+    # own "could not be verified" warning instead of one checker-level failure.
+    fences = [CodeFence(language="python", content="import os\nimport sys\n", line=1)]
+    findings = check_imports(fences, env_python="/no/such/python-zzz")
+    assert len(findings) == 2
+    assert all(f.severity == "warning" for f in findings)
+    assert all("could not be verified" in f.detail for f in findings)
+
+
+def test_bare_fence_imports_are_checked():
+    fences = [CodeFence(language="", content="import definitely_fake_bare_zzz\n", line=1)]
+    findings = check_imports(fences, env_python=sys.executable)
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "definitely_fake_bare_zzz" in findings[0].detail
+
+
+def test_bare_fence_non_python_is_skipped():
+    fences = [CodeFence(language="", content="$ pip install attune-verify\n", line=1)]
+    assert check_imports(fences, env_python=sys.executable) == []
+
+
+# ---------------------------------------------------------------------------
 # Extractors: line numbers, language defaulting, context windows
 # ---------------------------------------------------------------------------
 def test_extract_code_fences_language_and_line():
@@ -225,9 +270,18 @@ def test_extract_code_fences_language_and_line():
     assert "import os" in fences[0].content
 
 
-def test_extract_code_fences_blank_language_defaults_to_text():
+def test_extract_code_fences_blank_language_stays_empty():
+    # "" (not "text") so the import checker's bare-fence branch can fire.
     fences = extract_code_fences("```\nplain\n```\n")
-    assert fences[0].language == "text"
+    assert fences[0].language == ""
+
+
+def test_extract_code_fences_with_info_string():
+    # ```python title="ex.py" — the info string must not hide the fence.
+    fences = extract_code_fences('```python title="ex.py"\nimport os\n```\n')
+    assert len(fences) == 1
+    assert fences[0].language == "python"
+    assert "import os" in fences[0].content
 
 
 def test_extract_links_captures_text_target_and_line():

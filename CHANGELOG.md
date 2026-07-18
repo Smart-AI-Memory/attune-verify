@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Fences with an info string are now extracted.** ` ```python title="ex.py" `
+  previously matched nothing, so everything inside the fence went unchecked —
+  a silent false negative for any MkDocs/Docusaurus-style generated doc.
+- **Bare code fences are now import-checked.** LLM output routinely omits the
+  language tag; bare fences were mapped to "text" and skipped entirely, so a
+  fake import in an untagged fence passed silently. Untagged fences are now
+  parsed speculatively — non-Python content fails `ast.parse` and is skipped,
+  so no new false positives (guarded by corpus case `clean_bare_fence_shell`).
+- **One broken command no longer aborts a whole checker.** An allow-listed
+  `--help` command whose binary is missing (or times out) raised out of the
+  flags checker, collapsing every other flag in the document into a single
+  checker-level warning; same for a bad `env_python` in the import checker.
+  Both now degrade per-flag / per-import (warning) and keep checking the rest.
+
 ## [0.2.1] - 2026-06-22
 
 Verifier-accuracy fixes — `verify()` now catches three hallucination

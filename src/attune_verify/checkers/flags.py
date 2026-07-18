@@ -42,7 +42,7 @@ def check_flags(
                     kind=FindingKind.UNKNOWN_FLAG,
                     detail=(
                         f"Flag '{flag}' could not be verified "
-                        f"(command '{cmd}' not in allowed_help_cmds)"
+                        f"(no --help output available for command '{cmd}')"
                     ),
                     evidence=match.group(0),
                     severity="warning",
@@ -85,16 +85,25 @@ def _get_help(
     help_commands: Dict[str, str],
     allowed_help_cmds: FrozenSet[str],
 ) -> str | None:
-    """Return help text or None if the command cannot be introspected."""
+    """Return help text, or None if the command cannot be introspected.
+
+    None covers three cases: the command is not allow-listed, its binary is
+    missing, or --help failed to run. A failed subprocess degrades to None
+    (per-flag warning) rather than raising — one broken command must not
+    abort verification of every other flag in the content.
+    """
     if cmd in help_commands:
         return help_commands[cmd]
     if cmd in allowed_help_cmds:
-        result = subprocess.run(
-            [cmd, "--help"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=10,
-        )
+        try:
+            result = subprocess.run(
+                [cmd, "--help"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
         return result.stdout + result.stderr
     return None

@@ -147,6 +147,29 @@ CASES: tuple[CorpusCase, ...] = (
         expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "--ver"),),
     ),
     CorpusCase(
+        name="evasion_info_string_fence",
+        label="evasion",
+        # A fence with an info string (```python title="...") slipped past the
+        # v0.2.1 extractor entirely, so anything inside went unchecked.
+        content='```python title="ex.py"\nimport definitely_fake_info_pkg_zzz\n```\n',
+        expected=(ExpectedFinding(FindingKind.UNRESOLVED_IMPORT, "definitely_fake_info_pkg_zzz"),),
+    ),
+    CorpusCase(
+        name="evasion_bare_fence_import",
+        label="evasion",
+        # LLM output routinely omits the language tag; v0.2.1 mapped bare
+        # fences to "text" so their imports were never checked.
+        content="```\nimport definitely_fake_bare_pkg_zzz\n```\n",
+        expected=(ExpectedFinding(FindingKind.UNRESOLVED_IMPORT, "definitely_fake_bare_pkg_zzz"),),
+    ),
+    CorpusCase(
+        name="clean_bare_fence_shell",
+        label="clean",
+        # Bare fences with non-Python content must not be flagged — the
+        # speculative parse skips anything that isn't valid Python.
+        content="Install it:\n```\n$ pip install attune-verify\n```\n",
+    ),
+    CorpusCase(
         name="evasion_count_cross_contamination",
         label="evasion",
         # 12 matches the *modules* source globally, but the claim is about

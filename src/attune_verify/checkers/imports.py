@@ -30,6 +30,8 @@ def check_imports(
     """
     findings: List[Finding] = []
     for fence in fences:
+        # "" is a bare fence: LLM output routinely omits the language tag, so
+        # parse speculatively — non-Python content fails ast.parse and is skipped.
         if fence.language not in ("python", "py", ""):
             continue
         try:
@@ -38,13 +40,32 @@ def check_imports(
             continue
         for node in ast.walk(tree):
             for module in _modules_from_node(node):
-                if not _resolves(module, env_python):
+                location = f"line {fence.line}" if fence.line else None
+                try:
+                    resolved = _resolves(module, env_python)
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    # Resolution infrastructure failed (bad env_python, timeout).
+                    # Degrade per-import — the remaining imports must still run.
+                    findings.append(
+                        Finding(
+                            kind=FindingKind.UNRESOLVED_IMPORT,
+                            detail=(
+                                f"Import '{module}' could not be verified "
+                                f"({type(exc).__name__}: {exc})"
+                            ),
+                            evidence=f"import {module}",
+                            location=location,
+                            severity="warning",
+                        )
+                    )
+                    continue
+                if not resolved:
                     findings.append(
                         Finding(
                             kind=FindingKind.UNRESOLVED_IMPORT,
                             detail=f"Import '{module}' does not resolve in {env_python}",
                             evidence=f"import {module}",
-                            location=f"line {fence.line}" if fence.line else None,
+                            location=location,
                             severity="error",
                         )
                     )
