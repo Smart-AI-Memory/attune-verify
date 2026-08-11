@@ -7,13 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Accuracy fixes from the 2026-08-10 library audit: three numeric-claim
-false-positive classes stopped, two silent false-negative classes closed
-(short count labels, single-span/fenced CLI flags), markdown link titles
-handled, and the semantic layer now judges against real source passages
-instead of the content itself. Every fix carries a regression corpus case.
+## [0.3.0] - 2026-08-11
+
+**Beta.** The deterministic core is stable and the public API is now covered
+by a compatibility promise (see the README status section). Two releases'
+worth of accuracy work lands here: the 2026-08-10 audit fixes plus a
+beta-review pass that closed two more silent false-negative classes in the
+fence extractor and two link false positives.
+
+### Changed
+
+- **`Development Status :: 4 - Beta`** (was `2 - Pre-Alpha`). `verify`,
+  `VerifyContext`, `VerifyResult`, `Finding`, `FindingKind`,
+  `raise_if_failed` and the `Judge` protocol will not change shape without a
+  deprecation in a minor release.
+
+### Added
+
+- **`py.typed`.** The package is fully annotated but shipped no PEP 561
+  marker, so type checkers ignored it in downstream projects.
+- **Packaging guards.** `__version__` and the `pyproject.toml` version are
+  pinned equal by a test — the release flow bumps both by hand, and drift
+  would ship a wheel whose metadata disagrees with the runtime value.
+- **README:** a per-checker table of what each checker settles and which
+  truth source it needs, plus an explicit known-limitations list.
 
 ### Fixed
+
+- **Indented code fences are no longer invisible.** A fence nested under a
+  list item — how LLMs routinely write install steps — matched nothing, so
+  every import and shell flag inside one passed unchecked. The extractor is
+  now a line scanner: it accepts a fence at any indentation and strips that
+  indent from the body (uniformly indented code otherwise fails `ast.parse`,
+  which was the silent skip). This was the largest remaining hole.
+- **Tilde fences (`~~~`) are extracted.** CommonMark-legal and previously
+  unrecognized — another silent pass.
+- **Percent-encoded link targets resolve.** A link to a file whose name
+  contains a space is written `docs/my%20file.md`; that was checked
+  literally and flagged a file that exists. The raw form is still tried
+  first, so a file genuinely named `a%20b.md` resolves, and a decoded
+  target that escapes `project_root` is still caught.
+- **Balanced parentheses in link targets are not truncated.**
+  `[doc](docs/a(1).md)` was cut to `docs/a(1)` and flagged.
+- **Link syntax shown as an example is no longer checked as a link.** A doc
+  documenting its own conventions ("write it as `` `[text](target.md)` ``")
+  was flagged for a target it never claimed existed — no renderer resolves a
+  link inside a code span or fence. Links are now read from prose only —
+  spans of any delimiter width, so a doubled delimiter around a span that
+  itself contains backticks is masked whole rather than at its edges. Line
+  numbers are unaffected, and a real link sharing a line with an example is
+  still checked. Found by running verify over its own README.
+- The fence scanner also enforces the rules the old regex ignored: an
+  unclosed fence is not a fence (its body was the rest of the document), a
+  closing run must match the opening character and length, and an inline
+  ``` ```code``` ``` span no longer opens one.
+- Stripping fences before the flag scan now blanks the lines in place
+  rather than deleting them, so prose either side of a code block never
+  becomes adjacent when the checker looks backwards for a command name.
+
+### Fixed (2026-08-10 audit)
 
 - **Comma-grouped numbers are one claim.** "1,234 tests" previously
   extracted the "234" fragment and flagged an error-severity count
@@ -55,7 +107,7 @@ instead of the content itself. Every fix carries a regression corpus case.
   judge was provided"; the message now names the failing object and the
   protocol mismatch.
 
-### Changed
+### Changed (2026-08-10 audit)
 
 - Import resolution passes the module name to the child interpreter via
   `argv` instead of f-string interpolation into the `-c` program —

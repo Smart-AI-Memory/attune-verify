@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import unquote
 
 from attune_verify._extract import MarkdownLink
 from attune_verify.result import Finding, FindingKind
@@ -52,7 +53,7 @@ def check_links(
         # Site-absolute targets (/docs/page.md) mean root-relative in generated
         # docs; joining them raw would make Path use the filesystem root.
         rel = path_part.lstrip("/") if path_part.startswith("/") else path_part
-        resolved = (root / rel).resolve()
+        resolved = _resolve_target(root, rel)
         if not resolved.is_relative_to(root):
             # ../-traversal out of the declared truth boundary: the file may
             # exist on disk, but it cannot be verified AS a project link.
@@ -80,3 +81,21 @@ def check_links(
                 )
             )
     return findings
+
+
+def _resolve_target(root: Path, rel: str) -> Path:
+    """Resolve a link target under root, honouring percent-encoding.
+
+    A link to a file whose name contains a space is written ``a%20b.md``, and
+    checking that literally flagged a file that exists. The raw form is tried
+    first, so a file genuinely named ``a%20b.md`` still resolves; the decoded
+    form is the fallback, and is only preferred when it exists.
+    """
+    resolved = (root / rel).resolve()
+    if resolved.exists():
+        return resolved
+    decoded = unquote(rel)
+    if decoded == rel:
+        return resolved
+    decoded_path = (root / decoded).resolve()
+    return decoded_path if decoded_path.exists() else resolved
