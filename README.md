@@ -64,10 +64,16 @@ protocol) is what beta covers: it will not change shape without a deprecation
 in a minor release. The LLM semantic layer is optional via the `[rag]` extra
 and is the least settled part of the surface.
 
+Links are read from prose only. Inline (`[text](target)`) and all three
+reference forms — full `[text][label]`, collapsed `[text][]`, and shortcut
+`[text]` — resolve against the document's `[label]: target` definitions. An
+explicit reference whose label is never defined is an error: it renders as
+literal text, so the link does not exist. An *undefined shortcut* is ordinary
+prose (`the [3] case` is not a broken link) and is skipped, as are GFM
+footnotes, which share the same syntax.
+
 ### Known limitations
 
-- Reference-style links (`[text][ref]`) are not resolved — only inline
-  `[text](target)` links are checked.
 - Short flags (`-v`) are not checked; only `--long` forms are.
 - A flag written as bare `` `--flag` `` in prose is attributed to the nearest
   preceding word, so it may degrade to a warning rather than resolve.

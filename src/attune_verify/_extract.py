@@ -18,11 +18,17 @@ class CodeFence:
 
 @dataclass
 class MarkdownLink:
-    """A markdown link extracted from content."""
+    """A markdown link extracted from content.
+
+    ``target`` is None only for a reference link whose label has no
+    definition: the reference names a definition that does not exist, which
+    is a claim in its own right and is reported as a dead link.
+    """
 
     text: str
-    target: str
+    target: Optional[str]
     line: Optional[int] = None
+    label: Optional[str] = None  # set when the link came from a [ref] form
 
 
 @dataclass
@@ -56,6 +62,21 @@ _NUM_RE = re.compile(r"(?<!\w)(?<!\d\.)(\d{1,3}(?:,\d{3})+|\d{2,})(?!\w)(?!\.\d)
 # A markdown link target may carry a quoted/parenthesized title after the path
 # ('docs/a.md "Read me"') or wrap the path in <angle brackets>.
 _LINK_TITLE_RE = re.compile(r"""^(\S+)\s+("[^"]*"|'[^']*'|\([^)]*\))$""")
+# A link reference definition: '[label]: docs/a.md "Optional title"' leading a
+# line. CommonMark caps the indent at three spaces (four starts an indented
+# code block), but any indent is accepted here: a definition nested under a
+# list item is real and common, and missing one turns its reference into an
+# error-severity false positive — the costlier direction. Fenced blocks are
+# masked before this runs; indented code blocks are not modelled anywhere in
+# the extractor, so this stays consistent with the rest of it.
+_LINK_DEF_RE = re.compile(
+    r"""^[ \t]*\[([^\]]+)\]:[ \t]*(\S+)(?:[ \t]+("[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$""",
+    re.MULTILINE,
+)
+# A reference link: full '[text][label]', collapsed '[text][]', or shortcut
+# '[text]'. The second bracket group is None for the shortcut form and "" for
+# the collapsed form — the two are treated differently when unresolved.
+_REF_LINK_RE = re.compile(r"\[([^\]]+)\](?:\[([^\]]*)\])?")
 
 
 @dataclass
@@ -190,15 +211,96 @@ def extract_links(content: str) -> List[MarkdownLink]:
     title (``docs/a.md "Read me"``) is stripped and ``<angle-bracket>``
     wrapping is removed, so checkers see only the path.
     """
-    links = []
     prose = _mask_code(content)
+    links = []
     for match in _LINK_RE.finditer(prose):
-        line = prose[: match.start()].count("\n") + 1
         links.append(
             MarkdownLink(
                 text=match.group(1),
                 target=_clean_link_target(match.group(2)),
-                line=line,
+                line=_line_of(prose, match.start()),
+            )
+        )
+    # Inline links are consumed first: their '[text]' would otherwise read as a
+    # shortcut reference. Definitions are consumed next for the same reason —
+    # '[ref]: docs/a.md' leads with something shaped exactly like one.
+    remaining = _mask_spans(prose, _LINK_RE)
+    definitions = _link_definitions(remaining)
+    remaining = _mask_spans(remaining, _LINK_DEF_RE)
+    links.extend(_reference_links(remaining, definitions))
+    return links
+
+
+def _line_of(text: str, offset: int) -> int:
+    """1-based line number of an offset. Masking preserves line breaks, so
+    this is the line in the original content."""
+    return text[:offset].count("\n") + 1
+
+
+def _mask_spans(text: str, pattern: "re.Pattern[str]") -> str:
+    """Blank every match of pattern, preserving length and line breaks."""
+    return pattern.sub(lambda m: _blank_like(m.group(0)), text)
+
+
+def _blank_like(matched: str) -> str:
+    """Spaces of the same shape as the matched text, newlines kept."""
+    return "".join("\n" if char == "\n" else " " for char in matched)
+
+
+def _normalize_label(label: str) -> str:
+    """CommonMark label matching: case-insensitive, whitespace-collapsed."""
+    return " ".join(label.split()).lower()
+
+
+def _is_footnote_label(label: str) -> bool:
+    """True for the GFM footnote namespace, which is not a link reference.
+
+    A footnote shares link-reference syntax exactly — ``[^1]`` against
+    ``[^1]: Sourced`` — so a short footnote body reads as a target and its
+    marker reads as a link to it, flagging "Sourced" as a missing file.
+    """
+    return label.startswith("^")
+
+
+def _link_definitions(prose: str) -> dict:
+    """Map normalized reference labels to their targets.
+
+    A repeated label keeps the FIRST definition, as CommonMark specifies.
+    """
+    definitions: dict = {}
+    for match in _LINK_DEF_RE.finditer(prose):
+        label = _normalize_label(match.group(1))
+        if _is_footnote_label(label) or label in definitions:
+            continue
+        definitions[label] = _clean_link_target(match.group(2))
+    return definitions
+
+
+def _reference_links(prose: str, definitions: dict) -> List[MarkdownLink]:
+    """Resolve reference links against the document's definitions.
+
+    Three forms: full ``[text][label]``, collapsed ``[text][]`` (label is the
+    text), and shortcut ``[text]`` (likewise). A shortcut whose label has no
+    definition is ordinary prose — "the [3] case" is not a broken link — so it
+    is skipped. The bracketed forms are an explicit reference: an undefined
+    label there renders literally instead of linking, so it is reported with
+    ``target=None`` rather than passing silently.
+    """
+    links = []
+    for match in _REF_LINK_RE.finditer(prose):
+        text, bracketed = match.group(1), match.group(2)
+        is_shortcut = bracketed is None
+        label = _normalize_label(bracketed if bracketed else text)
+        if _is_footnote_label(label):
+            continue
+        if label not in definitions and is_shortcut:
+            continue
+        links.append(
+            MarkdownLink(
+                text=text,
+                target=definitions.get(label),
+                line=_line_of(prose, match.start()),
+                label=label,
             )
         )
     return links
