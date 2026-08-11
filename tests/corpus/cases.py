@@ -313,4 +313,79 @@ CASES: tuple[CorpusCase, ...] = (
         content='See [the doc](docs/missing.md "Read me").',
         expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing.md"),),
     ),
+    CorpusCase(
+        name="evasion_indented_fence_import",
+        label="evasion",
+        # A fence nested under a list item was invisible to the extractor in
+        # v0.2.x, so every import inside it passed unchecked — the exact
+        # silent-pass class this library exists to prevent, in the shape LLMs
+        # write installation docs.
+        content=(
+            "1. Install the package.\n"
+            "2. Then import it:\n"
+            "\n"
+            "   ```python\n"
+            "   import totally_fake_pkg_xyz_2026\n"
+            "   ```\n"
+        ),
+        expected=(ExpectedFinding(FindingKind.UNRESOLVED_IMPORT, "totally_fake_pkg_xyz_2026"),),
+    ),
+    CorpusCase(
+        name="evasion_indented_fence_flag",
+        label="evasion",
+        # Same blind spot, flag side: an indented ```bash block under a step.
+        content="1. Run it:\n\n   ```bash\n   mytool --nonexistent\n   ```\n",
+        help_commands={"mytool": "Options:\n  --verbose  Be loud\n"},
+        expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "--nonexistent"),),
+    ),
+    CorpusCase(
+        name="evasion_tilde_fence_import",
+        label="evasion",
+        # ~~~ is a CommonMark fence the extractor never recognized.
+        content="~~~python\nimport totally_fake_pkg_xyz_2026\n~~~\n",
+        expected=(ExpectedFinding(FindingKind.UNRESOLVED_IMPORT, "totally_fake_pkg_xyz_2026"),),
+    ),
+    CorpusCase(
+        name="clean_link_percent_encoded_space",
+        label="clean",
+        # A file whose name contains a space is linked as %20; checking the
+        # literal string flagged a file that exists.
+        content="See [the doc](docs/my%20file.md).",
+        files=("docs/my file.md",),
+    ),
+    CorpusCase(
+        name="dead_link_percent_encoded_still_flagged",
+        label="hallucinated",
+        # Decoding must not cost recall.
+        content="See [the doc](docs/missing%20file.md).",
+        expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing%20file.md"),),
+    ),
+    CorpusCase(
+        name="clean_link_syntax_shown_in_code_span",
+        label="clean",
+        # Docs that document link syntax were flagged for the example they
+        # show; no renderer resolves a link inside a code span.
+        content="Write it as `[text](docs/example.md)` in the body.",
+    ),
+    CorpusCase(
+        name="clean_link_syntax_shown_in_fence",
+        label="clean",
+        content="Example:\n\n```markdown\n[text](docs/example.md)\n```\n",
+    ),
+    CorpusCase(
+        name="dead_link_in_prose_beside_a_code_span_still_flagged",
+        label="hallucinated",
+        # Masking must not cost recall: a real link on the same line as an
+        # example is still checked.
+        content="Write it as `[text](target.md)` — see [the doc](docs/missing.md).",
+        expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing.md"),),
+    ),
+    CorpusCase(
+        name="clean_link_balanced_parens",
+        label="clean",
+        # '[^)]+' truncated the target at the first ')', so 'docs/a(1).md'
+        # was checked as 'docs/a(1' and flagged.
+        content="See [the doc](docs/a(1).md).",
+        files=("docs/a(1).md",),
+    ),
 )

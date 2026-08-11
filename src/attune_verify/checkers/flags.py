@@ -6,7 +6,7 @@ import re
 import subprocess
 from typing import Dict, FrozenSet, List, Optional
 
-from attune_verify._extract import _FENCE_RE, extract_code_fences
+from attune_verify._extract import extract_code_fences, strip_code_fences
 from attune_verify.result import Finding, FindingKind
 
 # One inline code span (`mytool --flag`); fences are handled separately.
@@ -40,7 +40,7 @@ def check_flags(
     # Inline spans: `--flag` alone or a whole command in one span
     # (`mytool --flag`). Fence bodies are stripped first so they are never
     # double-scanned as inline code.
-    prose = _FENCE_RE.sub("", content)
+    prose = strip_code_fences(content)
     for match in _INLINE_CODE_RE.finditer(prose):
         span = match.group(1)
         for flag_match in _FLAG_TOKEN_RE.finditer(span):

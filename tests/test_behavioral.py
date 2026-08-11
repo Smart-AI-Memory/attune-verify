@@ -23,6 +23,7 @@ from attune_verify._extract import (
     extract_code_fences,
     extract_links,
     extract_numeric_claims,
+    strip_code_fences,
 )
 from attune_verify.checkers.counts import check_counts
 from attune_verify.checkers.flags import _get_help, _guess_command, check_flags
@@ -222,6 +223,47 @@ def test_links_site_absolute_target_is_root_relative(tmp_path):
     assert findings[0].severity == "error"  # root/etc/passwd does not exist
 
 
+def test_links_percent_encoded_target_resolves_to_the_real_file(tmp_path):
+    # A file whose name has a space is linked as %20; checking that literally
+    # flagged a file that exists.
+    (tmp_path / "my file.md").write_text("x", encoding="utf-8")
+    assert check_links([MarkdownLink(text="d", target="my%20file.md", line=1)], tmp_path) == []
+
+
+def test_links_percent_encoded_dead_target_still_flagged(tmp_path):
+    # Decoding must not cost recall.
+    findings = check_links([MarkdownLink(text="d", target="missing%20file.md", line=1)], tmp_path)
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_links_literal_percent_in_filename_still_resolves(tmp_path):
+    # The raw form is tried first, so a file genuinely named 'a%20b.md'
+    # resolves and is not mistaken for an encoded 'a b.md'.
+    (tmp_path / "a%20b.md").write_text("x", encoding="utf-8")
+    assert check_links([MarkdownLink(text="d", target="a%20b.md", line=1)], tmp_path) == []
+
+
+def test_links_percent_encoded_traversal_is_still_caught(tmp_path):
+    # Decoding must not open an escape hatch out of the declared boundary.
+    outside = tmp_path / "outside.md"
+    outside.write_text("x", encoding="utf-8")
+    root = tmp_path / "project"
+    root.mkdir()
+    findings = check_links([MarkdownLink(text="up", target="%2e%2e/outside.md", line=1)], root)
+    assert len(findings) == 1
+    assert findings[0].severity == "warning"
+    assert "outside project_root" in findings[0].detail
+
+
+def test_links_balanced_parens_in_target_are_not_truncated(tmp_path):
+    # '[^)]+' stopped at the first ')', checking 'docs/a(1' instead.
+    (tmp_path / "a(1).md").write_text("x", encoding="utf-8")
+    links = extract_links("See [the doc](a(1).md).")
+    assert [link.target for link in links] == ["a(1).md"]
+    assert check_links(links, project_root=tmp_path) == []
+
+
 # ---------------------------------------------------------------------------
 # Flag checker branches
 # ---------------------------------------------------------------------------
@@ -364,6 +406,90 @@ def test_extract_code_fences_with_info_string():
     assert len(fences) == 1
     assert fences[0].language == "python"
     assert "import os" in fences[0].content
+
+
+def test_extract_code_fences_indented_under_list_item():
+    # The fence's own indent must be stripped, or the body fails ast.parse
+    # and every import inside it goes unchecked.
+    content = "1. Then:\n\n   ```python\n   import os\n   x = 1\n   ```\n"
+    fences = extract_code_fences(content)
+    assert len(fences) == 1
+    assert fences[0].language == "python"
+    assert fences[0].content == "import os\nx = 1\n"
+    assert fences[0].line == 3
+
+
+def test_extract_code_fences_tilde_fence():
+    fences = extract_code_fences("~~~python\nimport os\n~~~\n")
+    assert len(fences) == 1
+    assert fences[0].language == "python"
+    assert fences[0].content == "import os\n"
+
+
+def test_extract_code_fences_marker_kinds_do_not_close_each_other():
+    # A ``` line inside a ~~~ fence is body, not a closing marker.
+    fences = extract_code_fences("~~~\nnot a fence: ```\n~~~\n")
+    assert len(fences) == 1
+    assert fences[0].content == "not a fence: ```\n"
+
+
+def test_extract_code_fences_longer_closing_run_closes():
+    # CommonMark: the closing run must be at least as long as the opening one.
+    fences = extract_code_fences("````python\nimport os\n`````\n")
+    assert len(fences) == 1
+    assert fences[0].content == "import os\n"
+
+
+def test_extract_code_fences_unclosed_fence_is_not_a_fence():
+    # Otherwise the "body" is the rest of the document and prose gets checked
+    # as code.
+    assert extract_code_fences("```python\nimport os\nand then prose.\n") == []
+
+
+def test_extract_code_fences_inline_code_span_does_not_open_a_fence():
+    # A backtick fence's info string may not contain a backtick — otherwise a
+    # line-leading ```span``` swallows the prose after it as a fence body.
+    assert extract_code_fences("```code``` is written inline.\nprose\n```\n") == []
+
+
+def test_extract_code_fences_tilde_info_string_may_contain_a_backtick():
+    # The backtick rule is specific to backtick fences.
+    fences = extract_code_fences("~~~python `note`\nimport os\n~~~\n")
+    assert len(fences) == 1
+    assert fences[0].language == "python"
+
+
+def test_strip_code_fences_blanks_lines_without_moving_prose():
+    content = "before\n```bash\nmytool --x\n```\nafter\n"
+    stripped = strip_code_fences(content)
+    assert "mytool" not in stripped
+    assert stripped.count("\n") == content.count("\n")
+    assert stripped.splitlines()[0] == "before"
+    assert stripped.splitlines()[4] == "after"
+
+
+def test_extract_links_skips_code_spans_and_fences_but_keeps_line_numbers():
+    content = (
+        "intro\n"
+        "Write it as `[text](example.md)` in the body.\n"
+        "```markdown\n[shown](fenced.md)\n```\n"
+        "See [the doc](real.md).\n"
+    )
+    links = extract_links(content)
+    assert [(link.target, link.line) for link in links] == [("real.md", 6)]
+
+
+@pytest.mark.parametrize("ticks", ["`", "``", "```"])
+def test_extract_links_skips_spans_of_any_delimiter_width(ticks):
+    # A doubled delimiter is how a span containing backticks is written; a
+    # single-backtick rule masked its edges and left the middle exposed.
+    content = f"Write it as {ticks}[shown](example.md){ticks} — see [the doc](real.md)."
+    assert [link.target for link in extract_links(content)] == ["real.md"]
+
+
+def test_extract_links_span_containing_backticks_is_masked_whole():
+    content = "Inline ``code with `ticks` inside`` then [the doc](real.md)."
+    assert [link.target for link in extract_links(content)] == ["real.md"]
 
 
 def test_extract_links_captures_text_target_and_line():
