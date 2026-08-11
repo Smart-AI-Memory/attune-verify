@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Accuracy fixes from the 2026-08-10 library audit: three numeric-claim
+false-positive classes stopped, two silent false-negative classes closed
+(short count labels, single-span/fenced CLI flags), markdown link titles
+handled, and the semantic layer now judges against real source passages
+instead of the content itself. Every fix carries a regression corpus case.
+
+### Fixed
+
+- **Comma-grouped numbers are one claim.** "1,234 tests" previously
+  extracted the "234" fragment and flagged an error-severity count
+  mismatch against `tests=1234`; `1,234` is now extracted as the single
+  value 1234 (commas stripped). Grouped values also stay checked when
+  year-valued — "2,026 widgets" is a count, never a year.
+- **Decimals and version components are not counts.** "94.53" near a
+  source keyword extracted 94 and 53 as separate claims and flagged both;
+  the "10" in "Python 3.10" was flagged against a nearby source. Digit
+  runs adjacent to a decimal point are now skipped.
+- **Short count-source labels are no longer silently dead.** Label words
+  of length ≤ 3 ("api", "eps") were dropped by the keyword filter, so
+  those sources could never match any claim — a silent false negative.
+  Short words now require an exact word-boundary match on both sides
+  ("api" matches "api" but not "rapid"), and participate only when the
+  label has no longer word — in a mixed label ("number of tests") a short
+  word is usually a stopword, and letting "of" match ordinary prose would
+  drag unrelated numbers into the source. Longer words keep the
+  leading-boundary match so plural drift still hits.
+- **Flags inside real command spans and shell fences are now checked.**
+  The extractor only matched a flag backticked alone (`` `--flag` ``);
+  the common form `` `mytool --flag` `` — the whole command in one span —
+  matched nothing, despite a comment claiming it was handled, and flags
+  inside ```` ```bash ```` fences were unchecked. Both are now extracted
+  (fences: bash/sh/shell/console/zsh), with the command guessed from the
+  span or line itself before falling back to preceding prose.
+- **Markdown link titles no longer break path checks.**
+  `[text](docs/a.md "Read me")` treated the whole `docs/a.md "Read me"`
+  string as the path and errored even when the file exists. The optional
+  title is stripped and `<angle-bracket>` targets are unwrapped; dead
+  paths with titles are still flagged.
+- **The semantic layer no longer judges content against itself.**
+  `verify()` passed the generated content as its own source passages —
+  vacuously faithful by construction. `VerifyContext` gains a `passages`
+  field that is forwarded to the judge; when `semantic=True` with no
+  passages, verify degrades gracefully (warning, judge not called).
+- **The no-judge warning no longer misreports a bad judge.** A judge that
+  was provided but fails the `Judge` protocol check was reported as "no
+  judge was provided"; the message now names the failing object and the
+  protocol mismatch.
+
+### Changed
+
+- Import resolution passes the module name to the child interpreter via
+  `argv` instead of f-string interpolation into the `-c` program —
+  defense in depth (`ast` already guarantees identifier-safe names).
+- Corpus flag cases use the realistic single-span form
+  (`` `mytool --verbose` ``) instead of the unnatural split form; the
+  split form remains covered by `evasion_substring_flag`.
+
 ## [0.2.2] - 2026-07-17
 
 Accuracy + reliability patch from a full library review: five silent

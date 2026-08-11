@@ -91,7 +91,14 @@ CASES: tuple[CorpusCase, ...] = (
     CorpusCase(
         name="clean_flag",
         label="clean",
-        content="Run `mytool` `--verbose` for detailed output.",
+        # Realistic form: the whole command lives in ONE backtick span.
+        content="Run `mytool --verbose` for detailed output.",
+        help_commands={"mytool": "Options:\n  --verbose  Be loud\n  --help  Show help\n"},
+    ),
+    CorpusCase(
+        name="clean_flag_bash_fence",
+        label="clean",
+        content="Run it:\n```bash\n$ mytool --verbose\n```\n",
         help_commands={"mytool": "Options:\n  --verbose  Be loud\n  --help  Show help\n"},
     ),
     # --------------------------------------------------------- hallucinated
@@ -124,7 +131,10 @@ CASES: tuple[CorpusCase, ...] = (
     CorpusCase(
         name="fake_flag",
         label="hallucinated",
-        content="Pass `mytool` `--nonexistent` to enable it.",
+        # Realistic form: the whole command lives in ONE backtick span — the
+        # v0.2.2 extractor only matched a flag backticked alone, so this
+        # (the most common way LLMs write commands) passed silently.
+        content="Pass `mytool --nonexistent` to enable it.",
         help_commands={"mytool": "Options:\n  --verbose  Be loud\n  --help  Show help\n"},
         expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "--nonexistent"),),
     ),
@@ -194,5 +204,113 @@ CASES: tuple[CorpusCase, ...] = (
         content="The suite ran 12 tests successfully.",
         count_sources={"tests": 50, "modules": 12},
         expected=(ExpectedFinding(FindingKind.COUNT_MISMATCH, "12"),),
+    ),
+    # ------------------------------------------------- 2026-08-10 audit fixes
+    CorpusCase(
+        name="clean_comma_grouped_count",
+        label="clean",
+        # "1,234" is ONE number. The v0.2.2 extractor grabbed the "234"
+        # fragment and flagged it against tests=1234 (error false positive).
+        content="The suite runs 1,234 tests on every push.",
+        count_sources={"tests": 1234},
+    ),
+    CorpusCase(
+        name="comma_grouped_count_mismatch",
+        label="hallucinated",
+        # Comma handling must not cost recall: a wrong grouped count is
+        # still a mismatch.
+        content="The suite runs 1,234 tests on every push.",
+        count_sources={"tests": 999},
+        expected=(ExpectedFinding(FindingKind.COUNT_MISMATCH, "1234"),),
+    ),
+    CorpusCase(
+        name="comma_grouped_year_valued_count",
+        label="hallucinated",
+        # "2,026" is year-VALUED but comma-grouped — nobody writes a year
+        # with a thousands separator, so it is a count and must be checked.
+        content="There are 2,026 widgets in stock.",
+        count_sources={"widgets": 12},
+        expected=(ExpectedFinding(FindingKind.COUNT_MISMATCH, "2026"),),
+    ),
+    CorpusCase(
+        name="clean_decimal_near_keyword",
+        label="clean",
+        # "94.53" is a decimal, not two counts — the v0.2.2 extractor split
+        # it into 94 and 53 and flagged both against the source.
+        content="Coverage sits at 94.53 percent across the tests.",
+        count_sources={"tests": 50},
+    ),
+    CorpusCase(
+        name="clean_version_number_near_keyword",
+        label="clean",
+        # The "10" in "Python 3.10" is a version component, not a module
+        # count — a nearby source keyword must not turn it into a claim.
+        content="Requires Python 3.10 to load the python modules.",
+        count_sources={"python modules": 12},
+    ),
+    CorpusCase(
+        name="short_label_count_mismatch",
+        label="hallucinated",
+        # v0.2.2 dropped label words of length <= 3, so an "api" source
+        # could never match any claim — silently dead (false negative).
+        content="The service exposes 42 api endpoints.",
+        count_sources={"api": 3},
+        expected=(ExpectedFinding(FindingKind.COUNT_MISMATCH, "42"),),
+    ),
+    CorpusCase(
+        name="clean_short_label_boundary",
+        label="clean",
+        # Short labels match on exact word boundaries only — "api" must not
+        # match inside "rapid" and drag unrelated numbers into the source.
+        content="We shipped 42 rapid iterations this quarter.",
+        count_sources={"api": 3},
+    ),
+    CorpusCase(
+        name="clean_stopword_in_mixed_label",
+        label="clean",
+        # A short word in a MIXED label is usually a stopword: "of" must not
+        # match ordinary prose and drag unrelated numbers into the source.
+        # Short-word matching is a fallback for all-short labels only.
+        content="Only 12 of the widgets remain in the box.",
+        count_sources={"number of tests": 83},
+    ),
+    CorpusCase(
+        name="mixed_label_long_word_still_matches",
+        label="hallucinated",
+        # The fallback rule must not cost recall: a mixed label still
+        # matches on its long words.
+        content="The suite ran 12 tests successfully.",
+        count_sources={"number of tests": 83},
+        expected=(ExpectedFinding(FindingKind.COUNT_MISMATCH, "12"),),
+    ),
+    CorpusCase(
+        name="evasion_flag_in_bash_fence",
+        label="evasion",
+        # Flags inside ```bash fences were entirely unchecked in v0.2.2.
+        content="Enable it:\n```bash\nmytool --nonexistent\n```\n",
+        help_commands={"mytool": "Options:\n  --verbose  Be loud\n  --help  Show help\n"},
+        expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "--nonexistent"),),
+    ),
+    CorpusCase(
+        name="clean_link_with_title",
+        label="clean",
+        # Markdown title syntax: the title is not part of the path — v0.2.2
+        # checked 'docs/a.md "Read me"' for existence and errored.
+        content='See [the doc](docs/a.md "Read me") for details.',
+        files=("docs/a.md",),
+    ),
+    CorpusCase(
+        name="clean_link_angle_brackets",
+        label="clean",
+        content="See [the doc](<docs/a.md>) for details.",
+        files=("docs/a.md",),
+    ),
+    CorpusCase(
+        name="dead_link_with_title_still_flagged",
+        label="hallucinated",
+        # Title stripping must not cost recall: a dead path with a title is
+        # still a dead link.
+        content='See [the doc](docs/missing.md "Read me").',
+        expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing.md"),),
     ),
 )

@@ -25,7 +25,8 @@ def verify(content: str, context: VerifyContext) -> VerifyResult:
 
     Deterministic checkers always run and are independent — a failure in
     one does not abort the others. The semantic layer runs only when
-    context.semantic is True and a judge is available.
+    context.semantic is True and both a judge and source passages are
+    available.
 
     Args:
         content: LLM-generated content to verify.
@@ -108,14 +109,31 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
     """Run the semantic layer if a judge is available."""
     from attune_verify.semantic.protocol import Judge  # noqa: PLC0415
 
-    if context.judge is None or not isinstance(context.judge, Judge):
+    if context.judge is None:
+        detail = (
+            "Semantic layer requested (context.semantic=True) "
+            "but no judge was provided in VerifyContext.judge"
+        )
+    elif not isinstance(context.judge, Judge):
+        detail = (
+            "Semantic layer requested (context.semantic=True) but the "
+            f"provided judge ({type(context.judge).__name__}) does not "
+            "satisfy the Judge protocol (missing a compatible score())"
+        )
+    elif not context.passages:
+        # Without independent source passages the judge would score the
+        # content against itself — vacuously faithful, so skip instead.
+        detail = (
+            "Semantic layer requested (context.semantic=True) but no "
+            "source passages were provided in VerifyContext.passages"
+        )
+    else:
+        detail = None
+    if detail is not None:
         result.findings.append(
             Finding(
                 kind=FindingKind.SEMANTIC,
-                detail=(
-                    "Semantic layer requested (context.semantic=True) "
-                    "but no judge was provided in VerifyContext.judge"
-                ),
+                detail=detail,
                 evidence="",
                 severity="warning",
             )
@@ -126,7 +144,7 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
         verdict = context.judge.score(
             query="Verify this generated content for faithfulness",
             answer=content,
-            passages=content,
+            passages=context.passages,
         )
         result.semantic_ran = True
         if not verdict.faithful:
