@@ -72,9 +72,17 @@ literal text, so the link does not exist. An *undefined shortcut* is ordinary
 prose (`the [3] case` is not a broken link) and is skipped, as are GFM
 footnotes, which share the same syntax.
 
+Both `--long` and `-short` flags are checked. A single-letter short flag is
+unambiguous, so an absent one is an error. A longer single-dash token is not:
+`-xzf` may be a cluster of three flags, `-name` a single-dash long option, and
+`-j4` a flag with an attached value. Each reading is tried, and if none
+verifies the finding is a **warning** rather than an error — an ambiguous token
+is unverifiable, not refuted.
+
 ### Known limitations
 
-- Short flags (`-v`) are not checked; only `--long` forms are.
+- A dash followed by digits (`-5`) is read as a negative number, not a flag,
+  so a numeric short flag (`head -5`) is not checked.
 - A flag written as bare `` `--flag` `` in prose is attributed to the nearest
   preceding word, so it may degrade to a warning rather than resolve.
 - Counts are matched to a source by keyword overlap with the claim's

@@ -11,9 +11,14 @@ from attune_verify.result import Finding, FindingKind
 
 # One inline code span (`mytool --flag`); fences are handled separately.
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
-# A flag token anywhere in code text. Stops before "=value"; the negative
-# lookbehind keeps it from matching the tail of a longer flag or a "---" rule.
-_FLAG_TOKEN_RE = re.compile(r"(?<![\w-])(--\w[\w-]*)")
+# A flag token anywhere in code text: long (--flag) or short (-f, -xzf, -name).
+# Stops before "=value"; the negative lookbehind keeps it from matching the tail
+# of a longer flag, a hyphenated word, or a "---" rule. A short flag must start
+# with a LETTER, so a negative number argument ("--threshold -5") is not read as
+# a flag — the one shape where a dash-number is far more often a value.
+_FLAG_TOKEN_RE = re.compile(r"(?<![\w-])(--\w[\w-]*|-[A-Za-z][\w-]*)")
+# A short flag carrying its value with no space ("-j4", "-O2").
+_ATTACHED_VALUE_RE = re.compile(r"-([A-Za-z])\d+\Z")
 # Fence languages whose content is command lines worth flag-checking.
 _SHELL_LANGS = frozenset({"bash", "sh", "shell", "console", "zsh"})
 
@@ -89,13 +94,61 @@ def _verify_flag(
             evidence=evidence,
             severity="warning",
         )
-    if not _flag_in_help(flag, help_text):
+    if _flag_in_help(flag, help_text):
+        return None
+    reading = _alternate_reading(flag, help_text)
+    if reading is not None:
+        return None
+    if _is_ambiguous_short(flag):
+        # '-xzf' may be a cluster, '-name' a single-dash long option, '-j4' a
+        # flag with an attached value. None of those readings verified, but the
+        # token is genuinely ambiguous, so calling it refuted would risk a
+        # false error on a real flag. Unverifiable -> warning, never a silent
+        # pass — the same rule as a command with no --help.
         return Finding(
             kind=FindingKind.UNKNOWN_FLAG,
-            detail=f"Flag '{flag}' not found in '{cmd} --help'",
+            detail=(
+                f"Short flag '{flag}' could not be verified against "
+                f"'{cmd} --help' — not found whole, as a cluster of "
+                "single-letter flags, or as a flag with an attached value"
+            ),
             evidence=evidence,
-            severity="error",
+            severity="warning",
         )
+    return Finding(
+        kind=FindingKind.UNKNOWN_FLAG,
+        detail=f"Flag '{flag}' not found in '{cmd} --help'",
+        evidence=evidence,
+        severity="error",
+    )
+
+
+def _is_ambiguous_short(flag: str) -> bool:
+    """True for a single-dash token longer than one letter.
+
+    ``-v`` is unambiguous: it is that flag or nothing. ``-xzf`` is not — it
+    could be three flags, one flag, or a flag plus a value.
+    """
+    return not flag.startswith("--") and len(flag) > 2
+
+
+def _alternate_reading(flag: str, help_text: str) -> Optional[List[str]]:
+    """Return the first alternate reading of a short flag that fully verifies.
+
+    Only single-dash tokens have alternate readings. A cluster verifies when
+    EVERY letter is a known flag (``-xzf`` against ``-x -z -f``); an attached
+    value verifies when the leading flag is known (``-j4`` against ``-j``).
+    """
+    if not _is_ambiguous_short(flag):
+        return None
+    body = flag[1:]
+    if body.isalpha():
+        cluster = [f"-{letter}" for letter in body]
+        if all(_flag_in_help(part, help_text) for part in cluster):
+            return cluster
+    attached = _ATTACHED_VALUE_RE.fullmatch(flag)
+    if attached and _flag_in_help(f"-{attached.group(1)}", help_text):
+        return [f"-{attached.group(1)}"]
     return None
 
 
@@ -103,10 +156,12 @@ def _flag_in_help(flag: str, help_text: str) -> bool:
     """Return True if flag appears in help as a whole token.
 
     A plain substring test gives false negatives: ``--ver`` would pass
-    because ``--verbose`` contains it. Require the flag not be immediately
-    followed by another flag character (word char or hyphen).
+    because ``--verbose`` contains it. Require the flag be bounded on BOTH
+    sides by a non-flag character — the trailing bound stops ``-v`` matching
+    inside ``--verbose``, and the leading bound stops it matching the tail of
+    ``--v``, which would verify a short flag the command does not have.
     """
-    return re.search(re.escape(flag) + r"(?![\w-])", help_text) is not None
+    return re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", help_text) is not None
 
 
 def _guess_command(preceding: str) -> str:

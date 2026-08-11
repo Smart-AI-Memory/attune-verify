@@ -381,6 +381,52 @@ CASES: tuple[CorpusCase, ...] = (
         expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing.md"),),
     ),
     CorpusCase(
+        name="short_flag_unknown_flagged",
+        label="hallucinated",
+        # A single-char short flag is unambiguous: it is that flag or nothing,
+        # so an absent one is refuted, not merely unverifiable.
+        content="Run `mytool -q` to stay quiet.",
+        help_commands={"mytool": "Usage: mytool\n  -v, --verbose  Be loud\n"},
+        expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "-q"),),
+    ),
+    CorpusCase(
+        name="clean_short_flag_cluster",
+        label="clean",
+        # '-xzf' is three flags run together; every letter is known.
+        content="Extract with `tar -xzf archive.tgz`.",
+        help_commands={"tar": "Usage: tar\n  -x, --extract\n  -z, --gzip\n  -f, --file FILE\n"},
+    ),
+    CorpusCase(
+        name="clean_short_flag_single_dash_long_name",
+        label="clean",
+        # find-style single-dash long options must not be split into a cluster
+        # of letters that do not exist.
+        content="Match with `find -name '*.py'`.",
+        help_commands={"find": "Usage: find\n  -name PATTERN\n  -type T\n"},
+    ),
+    CorpusCase(
+        name="clean_short_flag_attached_value",
+        label="clean",
+        content="Build with `make -j4`.",
+        help_commands={"make": "Usage: make\n  -j N, --jobs N\n"},
+    ),
+    CorpusCase(
+        name="clean_negative_number_is_not_a_flag",
+        label="clean",
+        # A dash-number is far more often a value than a flag.
+        content="Filter with `mytool --threshold -5`.",
+        help_commands={"mytool": "Usage: mytool\n  --threshold N  Cutoff\n"},
+    ),
+    CorpusCase(
+        name="evasion_short_flag_hiding_in_long_flag",
+        label="evasion",
+        # '-v' is a substring of '--verbose'; a boundary-free match would
+        # verify a short flag the command does not have.
+        content="Run `mytool -v` for detail.",
+        help_commands={"mytool": "Usage: mytool\n  --verbose  Be loud\n"},
+        expected=(ExpectedFinding(FindingKind.UNKNOWN_FLAG, "-v"),),
+    ),
+    CorpusCase(
         name="clean_reference_link_resolves",
         label="clean",
         content="See [the guide][guide] for details.\n\n[guide]: docs/a.md\n",

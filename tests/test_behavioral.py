@@ -267,6 +267,73 @@ def test_links_balanced_parens_in_target_are_not_truncated(tmp_path):
 # ---------------------------------------------------------------------------
 # Flag checker branches
 # ---------------------------------------------------------------------------
+_TAR_HELP = {"tar": "Usage: tar\n  -x, --extract\n  -z, --gzip\n  -f, --file F\n  -v, --verbose\n"}
+
+
+def _flags(content, help_map=None):
+    return check_flags(content, help_map or _TAR_HELP, frozenset())
+
+
+@pytest.mark.parametrize(
+    "content,help_map",
+    [
+        ("`tar -v`", None),  # single letter, known
+        ("`tar -xzf a.tgz`", None),  # cluster, every letter known
+        ("`find -name '*.py'`", {"find": "Usage: find\n  -name PAT\n  -type T\n"}),
+        ("`make -j4`", {"make": "Usage: make\n  -j N, --jobs N\n"}),  # attached value
+    ],
+)
+def test_short_flag_readings_that_verify_are_clean(content, help_map):
+    assert _flags(content, help_map) == []
+
+
+def test_short_single_letter_flag_absent_is_an_error():
+    # Unambiguous: '-q' is that flag or nothing.
+    findings = _flags("`tar -q`")
+    assert [(f.severity, "-q" in f.detail) for f in findings] == [("error", True)]
+
+
+@pytest.mark.parametrize(
+    "content,help_map",
+    [
+        ("`tar -xqf a.tgz`", None),  # cluster with an unknown letter
+        ("`find -nope`", {"find": "Usage: find\n  -name PAT\n"}),  # single-dash long
+        ("`make -z9`", {"make": "Usage: make\n  -j N\n"}),  # attached value, unknown
+    ],
+)
+def test_ambiguous_short_flag_degrades_to_warning_not_error(content, help_map):
+    # '-xzf' may be a cluster, '-name' a single-dash long option, '-j4' a flag
+    # with an attached value. Calling an unresolved reading refuted would risk
+    # a false error on a real flag — unverifiable, so warn.
+    findings = _flags(content, help_map)
+    assert len(findings) == 1
+    assert findings[0].severity == "warning"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "`tar --threshold -5`",  # negative number argument
+        "`cat -`",  # bare dash (stdin)
+        "`tar -- -x`",  # end-of-options separator
+        "Use `my-tool` for this.",  # hyphenated word
+        "`tar -f /path/to-file`",  # hyphen inside a path
+    ],
+)
+def test_tokens_that_are_not_short_flags(content):
+    # Each of these would become a false positive if the token pattern were
+    # any looser. '--threshold' is real here, so only non-flag tokens remain.
+    assert [f for f in _flags(content) if "-5" in f.detail or "-x" in f.detail] == []
+
+
+def test_short_flag_does_not_verify_against_a_longer_flag():
+    # '-v' is a substring of '--verbose' and a suffix of '--v'; neither means
+    # the command has a '-v'.
+    for help_text in ("Usage: t\n  --verbose  Be loud\n", "Usage: t\n  --v  odd\n"):
+        findings = check_flags("`t -v`", {"t": help_text}, frozenset())
+        assert [f.severity for f in findings] == ["error"], help_text
+
+
 def test_flag_present_in_cached_help_is_clean():
     findings = check_flags(
         "Use `tool` `--verbose` now.",
