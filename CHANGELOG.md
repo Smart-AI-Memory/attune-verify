@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-11
+
+Closes the gap left open at 0.3.0: reference-style links were never
+resolved, so a dead target behind a label was a silent pass. Adding the
+feature also meant closing three false-positive classes it would otherwise
+have introduced — bracketed prose, GFM footnotes, and indented definitions.
+
+### Added
+
+- **Reference-style links are checked.** Only inline `[text](target)` links
+  were resolved, so every reference form was a silent pass — a dead target
+  behind a label went unreported. All three CommonMark forms now resolve
+  against the document's `[label]: target` definitions: full
+  `[text][label]`, collapsed `[text][]`, and shortcut `[text]`. Definitions
+  are matched case-insensitively with whitespace collapsed, may carry a
+  title or `<angle-bracket>` target, may be indented (including nested under
+  a list item), and the first definition of a repeated label wins.
+- **An explicit reference with no definition is an error.** `[text][label]`
+  without a matching definition renders as literal text — the link does not
+  exist, which is a refuted claim rather than an unverifiable one. Findings
+  quote the reference form (`[text][label]`) rather than inline syntax the
+  reader would not find in their document.
+
+### Fixed
+
+- **Undefined shortcut references are not links.** `[3]` and `[TODO]` in
+  ordinary prose only become links when a definition exists, so an undefined
+  shortcut is skipped rather than flagged — the bracketed-prose false
+  positive that makes shortcut support worth having at all.
+- **GFM footnotes are excluded.** A footnote shares reference syntax exactly:
+  `[^1]` against `[^1]: Sourced` parsed as a link whose target was the
+  footnote body, flagging `Sourced` as a missing file. The `^` namespace is
+  no longer read as a link reference.
+- **Definitions inside code fences no longer define.** A renderer does not
+  read definitions out of a code block, so a reference that depends on one is
+  correctly reported as undefined.
+
 ## [0.3.0] - 2026-08-11
 
 **Beta.** The deterministic core is stable and the public API is now covered

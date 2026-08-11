@@ -23,7 +23,7 @@ from attune_verify.result import (
     raise_if_failed,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "verify",
     "VerifyContext",

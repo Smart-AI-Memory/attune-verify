@@ -17,6 +17,9 @@ def check_links(
     """Verify markdown link targets exist relative to project_root.
 
     External URLs (http/https) are skipped — only local paths are checked.
+    A reference link whose label has no definition is reported directly: the
+    reference names a definition that does not exist, so there is no target
+    to look up.
 
     Args:
         links: Markdown links extracted from generated content.
@@ -29,6 +32,23 @@ def check_links(
     findings: List[Finding] = []
     for link in links:
         target = link.target
+        if target is None:
+            # An undefined reference does not render as a link at all — the
+            # raw '[text][label]' is what a reader sees. Refuted, not
+            # unverifiable, so this is an error like any other dead link.
+            findings.append(
+                Finding(
+                    kind=FindingKind.DEAD_LINK,
+                    detail=(
+                        f"Link reference '[{link.label}]' is used but never "
+                        "defined — no matching '[label]: target' definition"
+                    ),
+                    evidence=_evidence(link),
+                    location=f"line {link.line}" if link.line else None,
+                    severity="error",
+                )
+            )
+            continue
         # Skip external URLs and anchors-only
         if target.startswith(("http://", "https://", "mailto:", "#")):
             continue
@@ -43,7 +63,7 @@ def check_links(
                     detail=(
                         f"Link '{target}' cannot be verified " "(no project_root in VerifyContext)"
                     ),
-                    evidence=f"[{link.text}]({link.target})",
+                    evidence=_evidence(link),
                     location=f"line {link.line}" if link.line else None,
                     severity="warning",
                 )
@@ -64,7 +84,7 @@ def check_links(
                     detail=(
                         f"Link '{target}' resolves outside project_root " "and cannot be verified"
                     ),
-                    evidence=f"[{link.text}]({link.target})",
+                    evidence=_evidence(link),
                     location=f"line {link.line}" if link.line else None,
                     severity="warning",
                 )
@@ -75,12 +95,23 @@ def check_links(
                 Finding(
                     kind=FindingKind.DEAD_LINK,
                     detail=f"Link target '{path_part}' does not exist",
-                    evidence=f"[{link.text}]({link.target})",
+                    evidence=_evidence(link),
                     location=f"line {link.line}" if link.line else None,
                     severity="error",
                 )
             )
     return findings
+
+
+def _evidence(link: MarkdownLink) -> str:
+    """Render the link the way it was written.
+
+    A reference link quoted back as inline syntax would be evidence the reader
+    cannot find in their document, so reference forms keep their brackets.
+    """
+    if link.label is not None:
+        return f"[{link.text}][{link.label}]"
+    return f"[{link.text}]({link.target})"
 
 
 def _resolve_target(root: Path, rel: str) -> Path:

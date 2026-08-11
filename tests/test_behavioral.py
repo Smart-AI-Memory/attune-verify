@@ -492,6 +492,85 @@ def test_extract_links_span_containing_backticks_is_masked_whole():
     assert [link.target for link in extract_links(content)] == ["real.md"]
 
 
+# ---------------------------------------------------------------------------
+# Reference-style links: the three CommonMark forms, definitions, footnotes
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "content",
+    [
+        "See [the doc][guide].\n\n[guide]: docs/a.md\n",  # full
+        "See [guide][].\n\n[guide]: docs/a.md\n",  # collapsed
+        "See [guide].\n\n[guide]: docs/a.md\n",  # shortcut
+        'See [d][g].\n\n[g]: docs/a.md "Read me"\n',  # definition with title
+        "See [d][g].\n\n[g]: <docs/a.md>\n",  # angle-bracket definition
+        "See [The  Guide][].\n\n[the guide]: docs/a.md\n",  # case + whitespace
+        "See [d][g].\n\n   [g]: docs/a.md\n",  # 3-space indented definition
+        "1. See [d][g].\n\n    [g]: docs/a.md\n",  # definition under a list item
+    ],
+)
+def test_reference_link_forms_resolve_to_the_definition(content):
+    assert [link.target for link in extract_links(content)] == ["docs/a.md"]
+
+
+def test_reference_link_first_definition_wins():
+    content = "See [d][g].\n\n[g]: docs/first.md\n[g]: docs/second.md\n"
+    assert [link.target for link in extract_links(content)] == ["docs/first.md"]
+
+
+def test_reference_link_line_number_is_the_reference_not_the_definition():
+    content = "intro\nprose\n\nSee [d][g].\n\n[g]: docs/a.md\n"
+    assert [link.line for link in extract_links(content)] == [4]
+
+
+def test_definition_inside_a_fence_does_not_define():
+    # A renderer does not read definitions out of a code block, so the
+    # reference is genuinely undefined.
+    content = "See [d][g].\n\n```\n[g]: docs/a.md\n```\n"
+    links = extract_links(content)
+    assert [(link.target, link.label) for link in links] == [(None, "g")]
+
+
+def test_undefined_explicit_reference_is_an_error(tmp_path):
+    links = extract_links("See [the doc][guide].")
+    findings = check_links(links, project_root=tmp_path)
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "guide" in findings[0].detail
+    # Evidence must be the syntax the reader can find in their document.
+    assert findings[0].evidence == "[the doc][guide]"
+
+
+def test_undefined_shortcut_reference_is_ordinary_prose(tmp_path):
+    # Flagging these would false-positive on any bracketed text.
+    links = extract_links("Handle the [3] case and the [TODO] items.")
+    assert links == []
+    assert check_links(links, project_root=tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Claim.[^1]\n\n[^1]: Sourced\n",  # short body reads as a target
+        "Claim.[^1]\n\n[^1]: Sourced from the docs\n",
+    ],
+)
+def test_footnotes_are_not_link_references(content, tmp_path):
+    assert extract_links(content) == []
+
+
+def test_reference_and_inline_links_coexist(tmp_path):
+    content = "See [a](docs/one.md) and [b][g].\n\n[g]: docs/two.md\n"
+    assert [link.target for link in extract_links(content)] == [
+        "docs/one.md",
+        "docs/two.md",
+    ]
+
+
+def test_reference_link_inside_a_code_span_is_skipped():
+    content = "Write `[d][g]` here.\n\n[g]: docs/a.md\n"
+    assert extract_links(content) == []
+
+
 def test_extract_links_captures_text_target_and_line():
     links = extract_links("a\n[label](path/to.md)\n")
     assert len(links) == 1

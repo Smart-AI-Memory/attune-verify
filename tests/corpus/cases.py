@@ -381,6 +381,48 @@ CASES: tuple[CorpusCase, ...] = (
         expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing.md"),),
     ),
     CorpusCase(
+        name="clean_reference_link_resolves",
+        label="clean",
+        content="See [the guide][guide] for details.\n\n[guide]: docs/a.md\n",
+        files=("docs/a.md",),
+    ),
+    CorpusCase(
+        name="dead_reference_link_target_flagged",
+        label="hallucinated",
+        # Reference links were entirely unchecked before 0.4.0 — a dead target
+        # behind a label was a silent pass.
+        content="See [the guide][guide].\n\n[guide]: docs/missing.md\n",
+        expected=(ExpectedFinding(FindingKind.DEAD_LINK, "docs/missing.md"),),
+    ),
+    CorpusCase(
+        name="undefined_reference_label_flagged",
+        label="hallucinated",
+        # An explicit reference with no definition renders literally — the
+        # reader sees '[the guide][guide]', so the link never existed.
+        content="See [the guide][guide] for details.",
+        expected=(ExpectedFinding(FindingKind.DEAD_LINK, "guide"),),
+    ),
+    CorpusCase(
+        name="clean_shortcut_reference_resolves",
+        label="clean",
+        content="See [guide] for details.\n\n[guide]: docs/a.md\n",
+        files=("docs/a.md",),
+    ),
+    CorpusCase(
+        name="clean_bracketed_prose_is_not_a_link",
+        label="clean",
+        # An undefined SHORTCUT is ordinary prose, not a broken link —
+        # flagging it would false-positive on any bracketed text.
+        content="Handle the [3] case and the [TODO] items before shipping.",
+    ),
+    CorpusCase(
+        name="clean_footnote_is_not_a_link_reference",
+        label="clean",
+        # GFM footnotes share reference syntax exactly; a short footnote body
+        # read as a target and flagged 'Sourced' as a missing file.
+        content="The count is stable.[^1]\n\n[^1]: Sourced\n",
+    ),
+    CorpusCase(
         name="clean_link_balanced_parens",
         label="clean",
         # '[^)]+' truncated the target at the first ')', so 'docs/a(1).md'
