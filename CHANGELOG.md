@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-11
+
+Closes the gap left open at 0.3.0: reference-style links were never
+resolved, so a dead target behind a label was a silent pass. Adding the
+feature also meant closing three false-positive classes it would otherwise
+have introduced — bracketed prose, GFM footnotes, and indented definitions.
+
 ### Added
 
 - **Reference-style links are checked.** Only inline `[text](target)` links
