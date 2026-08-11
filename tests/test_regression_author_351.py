@@ -143,8 +143,12 @@ def test_semantic_only_shapes_are_semantic_layer_territory():
     )
     assert verify(semantic_only, ctx_no_judge).ok is True
 
-    # With a judge, both shapes surface as SEMANTIC errors.
-    ctx = VerifyContext(judge=_StubJudge(), semantic=True)
+    # With a judge and source passages, both shapes surface as SEMANTIC errors.
+    ctx = VerifyContext(
+        judge=_StubJudge(),
+        semantic=True,
+        passages="The worker accepts jobs at POST /jobs. Never bind examples to 0.0.0.0.",
+    )
     result = verify(semantic_only, ctx)
     assert result.semantic_ran is True
     assert result.ok is False

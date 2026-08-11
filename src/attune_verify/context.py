@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, FrozenSet, Optional, Union
+from typing import TYPE_CHECKING, Callable, Dict, FrozenSet, List, Optional, Union
 
 if TYPE_CHECKING:
     from attune_verify.semantic.protocol import Judge
@@ -36,7 +36,11 @@ class VerifyContext:
         judge: Optional semantic judge implementing the Judge protocol.
             Required for the semantic layer; when absent and semantic=True,
             verify degrades gracefully (warning, not error).
-        semantic: Enable the LLM semantic layer. Requires a judge.
+        passages: Source-of-truth passage(s) the semantic judge grounds the
+            content against. Required for the semantic layer — judging content
+            against itself is vacuous, so when absent and semantic=True,
+            verify degrades gracefully (warning, not error).
+        semantic: Enable the LLM semantic layer. Requires a judge and passages.
     """
 
     project_root: Optional[Path] = None
@@ -45,4 +49,5 @@ class VerifyContext:
     allowed_help_cmds: FrozenSet[str] = field(default_factory=frozenset)
     count_sources: Dict[str, Union[int, Callable[[], int]]] = field(default_factory=dict)
     judge: Optional["Judge"] = None
+    passages: Optional[Union[str, List[str]]] = None
     semantic: bool = False

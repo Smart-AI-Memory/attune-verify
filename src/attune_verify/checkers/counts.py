@@ -83,10 +83,36 @@ def _find_close_label(
     """
     context_lower = context.lower()
     for label in sources:
-        words = label.lower().split()
-        if any(re.search(rf"\b{re.escape(w)}", context_lower) for w in words if len(w) > 3):
+        if any(_word_matches(w, context_lower) for w in _match_words(label)):
             return label
     return None
+
+
+def _match_words(label: str) -> list[str]:
+    """Return the label words eligible for keyword matching.
+
+    Short words (<= 3 chars) participate only when the label has no longer
+    word to match on. A label like "api" was silently dead when short words
+    were dropped outright; but in a mixed label like "number of tests" a
+    short word is usually a stopword — letting "of" match ordinary prose
+    would drag unrelated numbers into the source.
+    """
+    words = label.lower().split()
+    long_words = [w for w in words if len(w) > 3]
+    return long_words if long_words else words
+
+
+def _word_matches(word: str, text: str) -> bool:
+    """Match a label keyword in text, calibrated to the keyword's length.
+
+    Long words match on a leading boundary only, so plural drift still hits
+    ("test" ~ "tests"). Short words ("api", "eps") prefix-match far too
+    loosely, so they require an exact word-boundary match on both sides —
+    previously they were dropped entirely, silently killing their source.
+    """
+    if len(word) > 3:
+        return re.search(rf"\b{re.escape(word)}", text) is not None
+    return re.search(rf"\b{re.escape(word)}\b", text) is not None
 
 
 def _year_like(value: int) -> bool:
@@ -99,10 +125,11 @@ def _label_follows_number(claim: NumericClaim, label: str) -> bool:
     "2026 widgets" reads as a widget count; "2026 versions of the widgets"
     reads as a year that merely has the keyword nearby.
     """
-    match = re.search(rf"\b{claim.value}\b((?:\s+\S+){{1,2}})", claim.context.lower())
+    # The claim value has commas stripped, but the context still shows the
+    # written form — match either ("2,026 widgets" is a count, never a year).
+    grouped = re.escape(f"{claim.value:,}")
+    match = re.search(rf"\b(?:{claim.value}|{grouped})\b((?:\s+\S+){{1,2}})", claim.context.lower())
     if match is None:
         return False
     following = match.group(1)
-    return any(
-        re.search(rf"\b{re.escape(w)}", following) for w in label.lower().split() if len(w) > 3
-    )
+    return any(_word_matches(w, following) for w in _match_words(label))

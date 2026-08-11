@@ -105,12 +105,19 @@ def _modules_from_node(node: ast.AST) -> list[str]:
 
 
 def _resolves(module: str, env_python: str) -> bool:
-    """Return True if module is importable in env_python."""
+    """Return True if module is importable in env_python.
+
+    The module name travels via argv, not f-string interpolation into the
+    -c program — defense in depth (ast already guarantees identifier-safe
+    names, but the child program must not depend on that).
+    """
     result = subprocess.run(
         [
             env_python,
             "-c",
-            f"import importlib.util; " f"print(importlib.util.find_spec('{module}') is not None)",
+            "import importlib.util, sys; "
+            "print(importlib.util.find_spec(sys.argv[1]) is not None)",
+            module,
         ],
         capture_output=True,
         text=True,

@@ -88,17 +88,18 @@ def test_semantic_disabled_does_not_invoke_judge():
 
 def test_semantic_faithful_produces_no_findings_and_sets_flag():
     judge = _FakeJudge(SemanticVerdict(faithful=True))
-    ctx = VerifyContext(judge=judge, semantic=True)
+    ctx = VerifyContext(judge=judge, semantic=True, passages="the source passage")
     result = verify("the generated answer", ctx)
     assert result.semantic_ran is True
     assert [f for f in result.findings if f.kind is FindingKind.SEMANTIC] == []
-    # The content is forwarded as the answer.
+    # The content is the answer; the declared passages are the ground truth.
     assert judge.calls[0]["answer"] == "the generated answer"
+    assert judge.calls[0]["passages"] == "the source passage"
 
 
 def test_semantic_unfaithful_emits_one_error_per_issue():
     judge = _FakeJudge(SemanticVerdict(faithful=False, issues=["claim A", "claim B"]))
-    ctx = VerifyContext(judge=judge, semantic=True)
+    ctx = VerifyContext(judge=judge, semantic=True, passages="the source passage")
     result = verify("content", ctx)
     sem = [f for f in result.findings if f.kind is FindingKind.SEMANTIC]
     assert [f.detail for f in sem] == ["claim A", "claim B"]
@@ -112,7 +113,38 @@ def test_semantic_requested_without_judge_warns():
     sem = [f for f in result.findings if f.kind is FindingKind.SEMANTIC]
     assert len(sem) == 1
     assert sem[0].severity == "warning"
+    assert "no judge" in sem[0].detail
     assert result.semantic_ran is False
+
+
+def test_semantic_judge_failing_protocol_check_names_the_judge():
+    # A judge that IS provided but lacks score() must not be reported as
+    # "no judge was provided" — the message names the failing object.
+    class _NotAJudge:
+        pass
+
+    ctx = VerifyContext(judge=_NotAJudge(), semantic=True, passages="src")
+    result = verify("content", ctx)
+    sem = [f for f in result.findings if f.kind is FindingKind.SEMANTIC]
+    assert len(sem) == 1
+    assert sem[0].severity == "warning"
+    assert "does not satisfy the Judge protocol" in sem[0].detail
+    assert "_NotAJudge" in sem[0].detail
+    assert result.semantic_ran is False
+
+
+def test_semantic_without_passages_warns_and_skips_judge():
+    # Judging content against itself is vacuous — with no passages the
+    # judge must not be called at all.
+    judge = _FakeJudge(SemanticVerdict(faithful=True))
+    ctx = VerifyContext(judge=judge, semantic=True)  # no passages
+    result = verify("content", ctx)
+    sem = [f for f in result.findings if f.kind is FindingKind.SEMANTIC]
+    assert len(sem) == 1
+    assert sem[0].severity == "warning"
+    assert "passages" in sem[0].detail
+    assert result.semantic_ran is False
+    assert judge.calls == []
 
 
 def test_semantic_judge_raising_degrades_to_warning():
@@ -120,7 +152,7 @@ def test_semantic_judge_raising_degrades_to_warning():
         def score(self, query, answer, passages):
             raise RuntimeError("judge down")
 
-    ctx = VerifyContext(judge=_Raising(), semantic=True)
+    ctx = VerifyContext(judge=_Raising(), semantic=True, passages="src")
     result = verify("content", ctx)
     sem = [f for f in result.findings if f.kind is FindingKind.SEMANTIC]
     assert len(sem) == 1

@@ -22,6 +22,7 @@ def test_semantic_finding_when_not_faithful():
     ctx = VerifyContext(
         semantic=True,
         judge=FakeJudge(faithful=False, issues=["insecure example: host=0.0.0.0"]),
+        passages="Bind the server to a loopback address in examples.",
     )
     result = verify("Some content with host=0.0.0.0", ctx)
     semantic = [f for f in result.findings if f.kind == FindingKind.SEMANTIC]
