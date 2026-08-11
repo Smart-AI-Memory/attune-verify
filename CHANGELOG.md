@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-11
+
+Closes the last silent-pass class in the flag checker: short flags were
+never scanned. The interesting part is what a longer single-dash token
+might mean — `-xzf`, `-name`, and `-j4` are three different things — so
+unresolved readings degrade to a warning rather than risking a false error.
+
+### Added
+
+- **Short flags are checked.** Only `--long` forms were scanned, so every
+  `-v` in generated content was a silent pass. A single-letter short flag is
+  unambiguous — it is that flag or nothing — so an absent one is an error,
+  the same as a long flag.
+- **Ambiguous short tokens degrade to a warning.** A longer single-dash
+  token has several readings: `-xzf` may be a cluster of three flags,
+  `-name` a single-dash long option (find, java, and friends), `-j4` a flag
+  with an attached value. Each reading is tried against `--help` — a cluster
+  verifies when every letter is a known flag, an attached value when the
+  leading flag is known — and only if none verifies is a finding emitted, as
+  a warning rather than an error. Splitting `-name` into four letter flags
+  that do not exist would have been the obvious way to get this wrong.
+- **A dash followed by digits is not a flag.** `--threshold -5` reads `-5`
+  as the value it almost always is. The cost is that a numeric short flag
+  (`head -5`) goes unchecked; the alternative false-positives on every
+  negative number in a command line.
+
+### Fixed
+
+- **A short flag no longer verifies against a longer flag that contains it.**
+  `_flag_in_help` bounded a match on the trailing side only, so `-v` matched
+  the tail of `--v` and reported a flag the command does not have as
+  verified. Both sides are now bounded. (The trailing bound already stopped
+  `-v` matching inside `--verbose`; this closes the leading side.)
+
 ## [0.4.0] - 2026-08-11
 
 Closes the gap left open at 0.3.0: reference-style links were never
