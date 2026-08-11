@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-11
+
+Closes the last silent-pass class in the flag checker: short flags were
+never scanned. The interesting part is what a longer single-dash token
+might mean — `-xzf`, `-name`, and `-j4` are three different things — so
+unresolved readings degrade to a warning rather than risking a false error.
+
 ### Added
 
 - **Short flags are checked.** Only `--long` forms were scanned, so every
