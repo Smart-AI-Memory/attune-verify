@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         ctx = load_context(args.context) if args.context else VerifyContext(project_root=Path.cwd())
+        ctx.project_root = ctx.project_root.resolve()
         inputs = list(getattr(args, "files", []))
         if hasattr(args, "input"):
             inputs.append(args.input)

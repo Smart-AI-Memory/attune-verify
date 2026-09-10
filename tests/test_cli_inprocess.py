@@ -1,6 +1,7 @@
 """In-process CLI assertions complement installed/subprocess boundary receipts."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -45,3 +46,15 @@ def test_evidence_and_evaluation_commands(tmp_path, monkeypatch, capsys):
     (tmp_path / "corpus.json").write_text('{"schema_version":1,"cases":[]}')
     assert main(["evaluate", "corpus.json", "--output", "metrics.json"]) == 0
     assert json.loads((tmp_path / "metrics.json").read_text())["human_validated_metrics"] is None
+
+
+def test_context_root_alias_is_normalized(tmp_path, monkeypatch, capsys):
+    import attune_verify.cli as cli
+    from attune_verify import VerifyContext
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "doc.md").write_text("```python\nimport pathlib\n```")
+    # The same root may have a relative, symlink or Windows short-name spelling.
+    monkeypatch.setattr(cli, "load_context", lambda path: VerifyContext(project_root=Path(".")))
+    assert cli.main(["check", "doc.md", "--context", "unused.json", "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["documents"][0]["file"] == "doc.md"

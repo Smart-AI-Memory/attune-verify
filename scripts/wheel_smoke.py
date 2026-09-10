@@ -49,8 +49,8 @@ def main() -> None:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                check=True,
             )
+            assert result.returncode == 0, result.stderr or result.stdout
             report = json.loads(result.stdout)
             assert report.get("passed", True)
             assert not report.get("needs_recheck", False)
