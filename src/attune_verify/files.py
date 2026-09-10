@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -22,6 +23,44 @@ def read_text(path: Path) -> str:
     return data.decode("utf-8")
 
 
+def _reject_constant(value: str) -> None:
+    raise ValueError(f"Non-finite JSON number: {value}")
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"Non-finite JSON number: {value}")
+    return number
+
+
+def read_json(path: Path) -> object:
+    """Read bounded JSON, rejecting non-finite numbers and excessive nesting."""
+    try:
+        return json.loads(
+            read_text(path), parse_constant=_reject_constant, parse_float=_finite_float
+        )
+    except RecursionError as exc:
+        raise ValueError(f"JSON nesting exceeds parser limits: {path}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
+
+
+def json_text(value: object) -> str:
+    """Serialize reports consistently, including on non-UTF-8 output streams."""
+    try:
+        return json.dumps(value, indent=2, ensure_ascii=True, allow_nan=False)
+    except RecursionError as exc:
+        raise ValueError("JSON nesting exceeds serializer limits") from exc
+
+
+def same_file(path: Path, other: Path) -> bool:
+    """Compare both prospective paths and existing filesystem identities."""
+    return path.resolve() == other.resolve() or (
+        path.exists() and other.exists() and path.samefile(other)
+    )
+
+
 def contained(path: Path, root: Path) -> Path:
     """Resolve a declared path and refuse escape from its root."""
     root = root.resolve()
@@ -37,12 +76,15 @@ def write_json(path: Path, value: object, *, root: Path) -> None:
     if raw.is_symlink():
         raise ValueError(f"Refusing symlink output: {path}")
     target = contained(path, root)
-    if any(part in {".git", ".hg", ".svn"} for part in target.relative_to(root.resolve()).parts):
+    if any(
+        part.casefold() in {".git", ".hg", ".svn"}
+        for part in target.relative_to(root.resolve()).parts
+    ):
         raise ValueError("Report output cannot overwrite repository metadata")
     if target.exists() and not target.is_file():
         raise ValueError(f"Output is not a regular file: {path}")
     # Require the output directory to exist: no implicit project restructuring.
-    payload = json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    payload = json_text(value) + "\n"
     name = None
     try:
         with tempfile.NamedTemporaryFile(

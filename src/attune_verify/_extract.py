@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
+import string
+from bisect import bisect_right
 from dataclasses import dataclass
+from html import unescape
 from typing import List, Optional
 
 
@@ -39,27 +42,19 @@ class NumericClaim:
     context: str  # surrounding text
     line: Optional[int] = None
     offset: Optional[int] = None  # number start within context
+    error: Optional[str] = None  # malformed value; value is 0 only as a sentinel
 
 
 # An opening fence: optional indent, a run of 3+ backticks or tildes, then an
 # info string. The info string may carry more than the language word
 # (```python title="ex.py") — only the leading word is the language.
 _FENCE_OPEN_RE = re.compile(r"^([ \t]*)(`{3,}|~{3,})(.*)$")
-# A link target may contain one level of balanced parentheses — 'docs/a(1).md'
-# is a legal CommonMark target, and [^)]+ truncated it to 'docs/a(1', flagging
-# a file that exists.
-_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:[^()]|\([^()]*\))*)\)")
-# One inline code span — its contents are shown, not claimed. The delimiter is
-# a run of backticks closed by a run of the same length, so a span that itself
-# contains backticks (``` ``a `b` c`` ```) is masked whole rather than leaving
-# its middle exposed as prose.
-_INLINE_CODE_RE = re.compile(r"(?<!`)(`{1,3})(?!`)[^\n]*?(?<!`)\1(?!`)")
 # 2+ digit numbers (skip single digits). Comma-grouped values ("1,234") are one
 # claim — the first alternative captures the whole group before the bare \d{2,}
 # can grab a fragment. Digit runs touching a decimal point ("94.53", the "10"
 # in "Python 3.10") are decimal/version components, not counts, and are skipped
 # via the surrounding lookarounds.
-_NUM_RE = re.compile(r"(?<!\w)(?<!\d\.)(\d{1,3}(?:,\d{3})+|\d{2,})(?!\w)(?!\.\d)")
+_NUM_RE = re.compile(r"(?<!\w)(?<!\d\.)([+-]?(?:\d{1,3}(?:,\d{3})+|\d{2,}))(?!\w)(?!\.\d)")
 # A markdown link target may carry a quoted/parenthesized title after the path
 # ('docs/a.md "Read me"') or wrap the path in <angle brackets>.
 _LINK_TITLE_RE = re.compile(r"""^(\S+)\s+("[^"]*"|'[^']*'|\([^)]*\))$""")
@@ -74,10 +69,8 @@ _LINK_DEF_RE = re.compile(
     r"""^[ \t]*\[([^\]]+)\]:[ \t]*(\S+)(?:[ \t]+("[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$""",
     re.MULTILINE,
 )
-# A reference link: full '[text][label]', collapsed '[text][]', or shortcut
-# '[text]'. The second bracket group is None for the shortcut form and "" for
-# the collapsed form — the two are treated differently when unresolved.
-_REF_LINK_RE = re.compile(r"\[([^\]]+)\](?:\[([^\]]*)\])?")
+_ESCAPE_RE = re.compile(r"\\([" + re.escape(string.punctuation) + r"])")
+_MAX_COUNT_DIGITS = 1024
 
 
 @dataclass
@@ -91,7 +84,7 @@ class _FenceSpan:
 
 
 def _iter_fence_spans(content: str) -> List[_FenceSpan]:
-    """Locate every closed code fence, line by line.
+    """Locate code fences in one forward scan, including EOF termination.
 
     A line scan rather than one regex, because a fence is defined by
     properties a single pattern reads poorly: the closing run must use the
@@ -99,10 +92,12 @@ def _iter_fence_spans(content: str) -> List[_FenceSpan]:
     fence (a code block nested under a list item — routine in LLM-written
     docs) carries that indent into every body line.
 
-    An unclosed fence is not a fence: its "body" is the rest of the document,
-    so treating it as code would drag ordinary prose into the checkers.
+    CommonMark terminates an unclosed fence at EOF. Discarding that region
+    would let truncating a rejected Python example remove its import claims.
     """
     lines = [line.rstrip("\r") for line in content.split("\n")]
+    if lines[-1] == "":
+        lines.pop()  # a terminal newline ends the last line; it is not an extra body line
     spans: List[_FenceSpan] = []
     index = 0
     while index < len(lines):
@@ -121,9 +116,8 @@ def _iter_fence_spans(content: str) -> List[_FenceSpan]:
             (j for j in range(index + 1, len(lines)) if close_re.match(lines[j])),
             None,
         )
-        if close_index is None:
-            index += 1
-            continue
+        body_end = len(lines) if close_index is None else close_index
+        close_index = len(lines) - 1 if close_index is None else close_index
         spans.append(
             _FenceSpan(
                 open_index=index,
@@ -132,7 +126,7 @@ def _iter_fence_spans(content: str) -> List[_FenceSpan]:
                 # how to treat untagged blocks (the import checker parses them
                 # speculatively).
                 language=_language_of(info),
-                body=[_strip_indent(line, len(indent)) for line in lines[index + 1 : close_index]],
+                body=[_strip_indent(line, len(indent)) for line in lines[index + 1 : body_end]],
             )
         )
         index = close_index + 1
@@ -193,15 +187,44 @@ def strip_code_fences(content: str) -> str:
 
 
 def _mask_code(content: str) -> str:
-    """Blank code fences and inline spans, preserving every line break.
+    """Mask fences, comments, and arbitrary-width inline code in linear time.
 
-    Link syntax shown as an example — ``Write it as `[text](target.md)` `` —
-    is not a link: no renderer resolves it, so checking it flags a target that
-    was never claimed to exist. Masking keeps line offsets intact, so a link's
-    reported line number is still its line in the original content.
+    A run index lets an unmatched backtick find its possible closer without
+    repeatedly rescanning the rest of the document. Code spans may wrap lines;
+    comments inside a code span are literal, while code in comments is ignored.
     """
     masked = strip_code_fences(content)
-    return _INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), masked)
+    runs = list(re.finditer(r"`+", masked))
+    boundaries = [m.end() for m in re.finditer(r"\r?\n[ \t]*\r?\n", masked)]
+    next_run: dict[int, tuple[int, int]] = {}
+    later: dict[tuple[int, int], tuple[int, int]] = {}
+    for run in reversed(runs):
+        width = run.end() - run.start()
+        key = (bisect_right(boundaries, run.start()), width)
+        if key in later:
+            next_run[run.start()] = later[key]
+        later[key] = (run.start(), run.end())
+    run_ends = {run.start(): run.end() for run in runs}
+    spans = []
+    index = 0
+    while index < len(masked):
+        if masked.startswith("<!--", index):
+            closing = masked.find("-->", index + 4)
+            end = len(masked) if closing == -1 else closing + 3
+            spans.append((index, end))
+            index = end
+        elif masked[index] == "\\":
+            index += 2
+        elif index in run_ends:
+            closing = next_run.get(index)
+            if closing is not None:
+                spans.append((index, closing[1]))
+                index = closing[1]
+            else:
+                index = run_ends[index]
+        else:
+            index += 1
+    return _blank_spans(masked, spans)
 
 
 def extract_links(content: str) -> List[MarkdownLink]:
@@ -213,29 +236,93 @@ def extract_links(content: str) -> List[MarkdownLink]:
     wrapping is removed, so checkers see only the path.
     """
     prose = _mask_code(content)
-    links = []
-    for match in _LINK_RE.finditer(prose):
-        links.append(
-            MarkdownLink(
-                text=match.group(1),
-                target=_clean_link_target(match.group(2)),
-                line=_line_of(prose, match.start()),
+    definitions = _link_definitions(prose)
+    prose = _mask_spans(prose, _LINK_DEF_RE)
+    pairs = _delimiter_pairs(prose)
+    newlines = [m.start() for m in re.finditer("\n", prose)]
+    inline: List[MarkdownLink] = []
+    references: List[MarkdownLink] = []
+    index = 0
+    while index < len(prose):
+        if prose[index] == "\\":
+            index += 2
+            continue
+        closing = pairs.get(index) if prose[index] == "[" else None
+        if closing is None:
+            index += 1
+            continue
+        text = prose[index + 1 : closing]
+        after = closing + 1
+        line = bisect_right(newlines, index) + 1
+        if prose[after : after + 1] == "(" and after in pairs:
+            end = pairs[after]
+            target = _inline_target(prose[after + 1 : end])
+            if target is not None:
+                inline.append(MarkdownLink(text=text, target=target, line=line))
+                index = end + 1
+                continue
+        bracketed = prose[after : after + 1] == "[" and after in pairs
+        label_text = prose[after + 1 : pairs[after]] if bracketed else text
+        label = _normalize_label(label_text or text)
+        if not _is_footnote_label(label) and (bracketed or label in definitions):
+            references.append(
+                MarkdownLink(text=text, target=definitions.get(label), line=line, label=label)
             )
-        )
-    # Inline links are consumed first: their '[text]' would otherwise read as a
-    # shortcut reference. Definitions are consumed next for the same reason —
-    # '[ref]: docs/a.md' leads with something shaped exactly like one.
-    remaining = _mask_spans(prose, _LINK_RE)
-    definitions = _link_definitions(remaining)
-    remaining = _mask_spans(remaining, _LINK_DEF_RE)
-    links.extend(_reference_links(remaining, definitions))
-    return links
+        index = pairs[after] + 1 if bracketed else after
+    # Keep the historical inline-before-reference ordering for callers.
+    return inline + references
 
 
-def _line_of(text: str, offset: int) -> int:
-    """1-based line number of an offset. Masking preserves line breaks, so
-    this is the line in the original content."""
-    return text[:offset].count("\n") + 1
+def _delimiter_pairs(text: str) -> dict[int, int]:
+    """Index balanced brackets and parentheses once, honoring escaped delimiters."""
+    stacks: dict[str, list[int]] = {"[": [], "(": []}
+    opening = {"]": "[", ")": "("}
+    pairs = {}
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char in stacks:
+            stacks[char].append(index)
+        elif char in opening and stacks[opening[char]]:
+            pairs[stacks[opening[char]].pop()] = index
+        index += 1
+    return pairs
+
+
+def _inline_target(raw: str) -> str | None:
+    """Separate a balanced destination from its optional Markdown title."""
+    raw = raw.strip()
+    if raw.startswith("<"):
+        end = raw.find(">")
+        if end < 0:
+            return None
+        target, tail = raw[1:end], raw[end + 1 :].strip()
+        if "\n" in target:
+            return None
+    else:
+        end = 0
+        while end < len(raw) and not raw[end].isspace():
+            end += 2 if raw[end] == "\\" and end + 1 < len(raw) else 1
+        target, tail = raw[:end], raw[end:].strip()
+    if tail and not (
+        len(tail) >= 2 and (tail[0], tail[-1]) in (('"', '"'), ("'", "'"), ("(", ")"))
+    ):
+        return None
+    return unescape(_ESCAPE_RE.sub(r"\1", target))
+
+
+def _blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """Blank sorted, non-overlapping spans without losing line breaks."""
+    parts = []
+    previous = 0
+    for start, end in spans:
+        parts.extend((text[previous:start], _blank_like(text[start:end])))
+        previous = end
+    parts.append(text[previous:])
+    return "".join(parts)
 
 
 def _mask_spans(text: str, pattern: "re.Pattern[str]") -> str:
@@ -277,36 +364,6 @@ def _link_definitions(prose: str) -> dict:
     return definitions
 
 
-def _reference_links(prose: str, definitions: dict) -> List[MarkdownLink]:
-    """Resolve reference links against the document's definitions.
-
-    Three forms: full ``[text][label]``, collapsed ``[text][]`` (label is the
-    text), and shortcut ``[text]`` (likewise). A shortcut whose label has no
-    definition is ordinary prose — "the [3] case" is not a broken link — so it
-    is skipped. The bracketed forms are an explicit reference: an undefined
-    label there renders literally instead of linking, so it is reported with
-    ``target=None`` rather than passing silently.
-    """
-    links = []
-    for match in _REF_LINK_RE.finditer(prose):
-        text, bracketed = match.group(1), match.group(2)
-        is_shortcut = bracketed is None
-        label = _normalize_label(bracketed if bracketed else text)
-        if _is_footnote_label(label):
-            continue
-        if label not in definitions and is_shortcut:
-            continue
-        links.append(
-            MarkdownLink(
-                text=text,
-                target=definitions.get(label),
-                line=_line_of(prose, match.start()),
-                label=label,
-            )
-        )
-    return links
-
-
 def _clean_link_target(raw: str) -> str:
     """Strip an optional title and angle-bracket wrapping from a link target."""
     target = raw.strip()
@@ -315,7 +372,7 @@ def _clean_link_target(raw: str) -> str:
         target = title_match.group(1)
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1]
-    return target
+    return unescape(_ESCAPE_RE.sub(r"\1", target))
 
 
 def extract_numeric_claims(content: str) -> List[NumericClaim]:
@@ -326,16 +383,27 @@ def extract_numeric_claims(content: str) -> List[NumericClaim]:
     """
     content = _mask_code(content)
     claims = []
+    newlines = [m.start() for m in re.finditer("\n", content)]
     for match in _NUM_RE.finditer(content):
-        line = content[: match.start()].count("\n") + 1
+        line = bisect_right(newlines, match.start()) + 1
         start = max(0, match.start() - 40)
         end = min(len(content), match.end() + 40)
+        digits = match.group(1).replace(",", "")
+        error = None
+        value = 0
+        try:
+            if len(digits.lstrip("+-")) > _MAX_COUNT_DIGITS:
+                raise ValueError(f"Numeric claim exceeds {_MAX_COUNT_DIGITS}-digit limit")
+            value = int(digits)
+        except ValueError as exc:
+            error = str(exc)
         claims.append(
             NumericClaim(
-                value=int(match.group(1).replace(",", "")),
-                context=content[start:end].replace("\n", " "),
+                value=value,
+                context=content[start:end],
                 line=line,
                 offset=match.start() - start,
+                error=error,
             )
         )
     return claims

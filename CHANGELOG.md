@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-10
+
+Maintenance release for reliable claim extraction, failure containment, bounded
+resolver work, and reproducible release artifacts. The legacy error-only `ok`
+contract and strict `passes()` policy remain distinct.
+
+### Fixed
+
+- Preserve input files and repository metadata when output paths use filesystem
+  aliases, including case aliases on case-insensitive filesystems.
+- Retain other refutations and observations when an individual link, count,
+  import probe, help command, or Python parse exceeds a supported resource limit
+  or fails. Invalid UTF-8 provider output becomes an unknown observation.
+- Keep EOF-terminated Python fences and nested Markdown links in the supported
+  claim set. Respect longer inline-code delimiters, wrapped code spans, escaped
+  link markers, and HTML comments during link/count extraction.
+- Resolve URL path components after one percent-decoding pass. Queries no longer
+  become filenames; external schemes are recognized case-insensitively. A literal
+  percent sign in a filename must be encoded as `%25` in the link.
+- Match full flag tokens, preserve punctuation including embedded `#`, exclude
+  attached `=value` text, and stop flag extraction at the `--` operand boundary.
+- Bind label-first counts across clauses, lines, and table rows to their actual
+  declared source; preserve numeric signs and retain neighboring claims around
+  oversized integers.
+- Resolve manifest-relative executable paths independently of the caller's
+  working directory while retaining the document command alias.
+- Install the built-in RAG provider dependencies with `[rag]`; reject empty
+  content and blank grounding before invoking a semantic judge.
+- Reject nonfinite or excessively nested JSON consistently across input and
+  report paths. Empty or invalid mutation evidence no longer reports a perfect
+  score.
+
+### Added
+
+- Per-operation subprocess defaults of 64 attempts, a 30-second aggregate
+  deadline, and 1 MiB of captured output, configurable through `VerifyContext`
+  and JSON contexts. Successes and failures are cached within an operation.
+- Explicit Python API command-to-executable mapping through `help_executables`.
+- Maintenance regressions for original review failures, plus a bounded Markdown
+  scanner and installed wheel/sdist checks with positive and negative CLI cases.
+- Linux mutation worker memory limits and retained process diagnostics. Resource
+  stops remain non-kills, forced termination fails, and the workflow reserves
+  time to export partial evidence after interruption.
+- [Release acceptance and evidence requirements](docs/reliability.md), including
+  exact artifact hashes, source/ref identity, offline RAG factory construction,
+  and required human approval before PyPI publication. The required reviewer
+  was configured with owner approval. See the release packet for actual
+  local and remote validation status; this changelog does not assert publication.
+
+### Clarified
+
+- Plain imports prove `find_spec` location; named symbol checks load their module.
+  Neither verifies that the generated example executes successfully.
+- Deterministic corpus and mutation thresholds describe their measured test
+  scopes, not general field accuracy. Semantic observations retain their distinct
+  document-level scope.
+
 ## [0.6.0] - 2026-09-10
 
 Adds explicit verification coverage, publication tooling, and Python API evidence

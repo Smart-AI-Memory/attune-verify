@@ -238,10 +238,9 @@ def test_links_percent_encoded_dead_target_still_flagged(tmp_path):
 
 
 def test_links_literal_percent_in_filename_still_resolves(tmp_path):
-    # The raw form is tried first, so a file genuinely named 'a%20b.md'
-    # resolves and is not mistaken for an encoded 'a b.md'.
+    # A literal percent is encoded as %25; resolve the URL, not a guessed filename.
     (tmp_path / "a%20b.md").write_text("x", encoding="utf-8")
-    assert check_links([MarkdownLink(text="d", target="a%20b.md", line=1)], tmp_path) == []
+    assert check_links([MarkdownLink(text="d", target="a%2520b.md", line=1)], tmp_path) == []
 
 
 def test_links_percent_encoded_traversal_is_still_caught(tmp_path):
@@ -432,13 +431,13 @@ def test_repeated_imports_resolved_once_per_call(monkeypatch):
     import attune_verify.checkers.imports as imports_mod
 
     calls = []
-    real_run = imports_mod.subprocess.run
+    real_run = imports_mod.run_probe
 
     def counting_run(*args, **kwargs):
         calls.append(args[0])
         return real_run(*args, **kwargs)
 
-    monkeypatch.setattr(imports_mod.subprocess, "run", counting_run)
+    monkeypatch.setattr(imports_mod, "run_probe", counting_run)
     fences = [
         CodeFence(language="python", content="import os\nimport os.path\n", line=1),
         CodeFence(language="python", content="import os\n", line=5),
@@ -507,16 +506,20 @@ def test_extract_code_fences_longer_closing_run_closes():
     assert fences[0].content == "import os\n"
 
 
-def test_extract_code_fences_unclosed_fence_is_not_a_fence():
-    # Otherwise the "body" is the rest of the document and prose gets checked
-    # as code.
-    assert extract_code_fences("```python\nimport os\nand then prose.\n") == []
+def test_extract_code_fences_unclosed_fence_ends_at_eof():
+    fences = extract_code_fences("```python\nimport os\nand then prose.\n")
+    assert len(fences) == 1
+    assert fences[0].language == "python"
+    assert "and then prose." in fences[0].content
 
 
 def test_extract_code_fences_inline_code_span_does_not_open_a_fence():
     # A backtick fence's info string may not contain a backtick — otherwise a
     # line-leading ```span``` swallows the prose after it as a fence body.
-    assert extract_code_fences("```code``` is written inline.\nprose\n```\n") == []
+    fences = extract_code_fences("```code``` is written inline.\nprose\n```\n")
+    assert len(fences) == 1
+    assert fences[0].line == 3  # the final standalone marker is an empty EOF fence
+    assert not fences[0].content.strip()
 
 
 def test_extract_code_fences_tilde_info_string_may_contain_a_backtick():
@@ -546,7 +549,7 @@ def test_extract_links_skips_code_spans_and_fences_but_keeps_line_numbers():
     assert [(link.target, link.line) for link in links] == [("real.md", 6)]
 
 
-@pytest.mark.parametrize("ticks", ["`", "``", "```"])
+@pytest.mark.parametrize("ticks", ["`", "``", "```", "````", "`" * 12])
 def test_extract_links_skips_spans_of_any_delimiter_width(ticks):
     # A doubled delimiter is how a span containing backticks is written; a
     # single-backtick rule masked its edges and left the middle exposed.

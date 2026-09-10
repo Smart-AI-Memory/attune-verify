@@ -1,6 +1,8 @@
 name: mutation
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -11,6 +13,7 @@ concurrency:
 jobs:
   mutation:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,13 +28,39 @@ jobs:
         # install registers a finder that would shadow it. Drop the package
         # (keeping its deps) so mutations actually take effect.
         run: pip uninstall -y attune-verify
+      - name: Disable crash collectors on the disposable runner
+        # Piped collectors ignore RLIMIT_CORE and can delay SIGXCPU termination.
+        # The mutation runner sets RLIMIT_CORE=0 for itself and its children.
+        run: sudo sysctl -w kernel.core_pattern=core
       - name: Run mutation testing
+        # Leave time inside the job limit to retain evidence from a stalled run.
+        timeout-minutes: 40
+        env:
+          ATTUNE_MUTATION_TMP_ROOT: ${{ runner.temp }}/attune-mutation
         run: |
-          mutmut run
-          mutmut export-cicd-stats
+          mkdir -p "$ATTUNE_MUTATION_TMP_ROOT"
+          python scripts/run_mutation.py --max-worker-rss-mib 1024
+      - name: Export mutation evidence
+        if: always()
+        timeout-minutes: 1
+        run: |
+          mkdir -p mutation-diagnostics
+          mutmut export-cicd-stats 2>&1 | tee mutation-diagnostics/export.log
       - name: Gate on mutation score
+        if: always()
         run: python scripts/mutation_gate.py 0.75
       - name: Show survivors (informational)
         if: always()
+        timeout-minutes: 1
         run: |
           mutmut results | grep ': survived' || true
+      - name: Retain mutation evidence
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: mutation-evidence
+          path: |
+            mutants/**/*.meta
+            mutants/mutmut-stats.json
+            mutants/mutmut-cicd-stats.json
+            mutation-diagnostics/

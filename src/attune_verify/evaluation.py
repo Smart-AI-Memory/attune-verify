@@ -23,6 +23,9 @@ def evaluate(corpus: dict, context: VerifyContext) -> dict:
     for case in corpus["cases"]:
         if not isinstance(case, dict) or not isinstance(case.get("content"), str):
             raise ValueError("Each case requires content")
+        identifier = case.get("id")
+        if identifier is not None and not isinstance(identifier, str):
+            raise ValueError("Case id must be a string or null")
         expected = case.get("expected_error")
         if expected is not None and type(expected) is not bool:
             raise ValueError("expected_error must be boolean or null")
@@ -33,7 +36,7 @@ def evaluate(corpus: dict, context: VerifyContext) -> dict:
         result = verify(case["content"], context)
         rows.append(
             {
-                "id": case.get("id"),
+                "id": identifier,
                 "expected_error": expected,
                 "predicted_error": not result.ok,
                 "status": result.status,

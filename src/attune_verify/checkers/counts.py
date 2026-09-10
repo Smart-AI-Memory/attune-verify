@@ -53,6 +53,16 @@ def check_counts(
     findings: List[Finding] = []
 
     for claim in claims:
+        if getattr(claim, "error", None):
+            record(
+                observations,
+                "counts",
+                "unsupported integer",
+                claim.context,
+                f"line {claim.line}" if claim.line else None,
+                unknown=claim.error,
+            )
+            continue
         # Match each claim to the source its surrounding text names, then
         # compare against THAT source's value. Comparing against a global set
         # of all values lets a claim pass on a coincidental match with an
@@ -171,14 +181,17 @@ def _label_follows_number(claim: NumericClaim, label: str) -> bool:
 
 
 def _source_for_claim(claim: NumericClaim, sources: dict) -> str | None:
-    """Bind to the nearest label without crossing another numeric claim."""
-    numbers = list(re.finditer(r"\b\d[\d,]*\b", claim.context))
+    """Bind locally on both sides, respecting clauses and table cells."""
+    numbers = list(re.finditer(r"(?<!\w)[+-]?\d[\d,]*\b", claim.context))
     number = next(
         (
             m
             for m in numbers
-            if (claim.offset is None or m.start() == claim.offset)
-            and int(m.group().replace(",", "")) == claim.value
+            if (
+                m.start() == claim.offset
+                if claim.offset is not None
+                else m.group().replace(",", "").lstrip("+") == str(claim.value)
+            )
         ),
         None,
     )
@@ -186,11 +199,14 @@ def _source_for_claim(claim: NumericClaim, sources: dict) -> str | None:
         return _find_close_label(claim.context, sources)
     following = next((m.start() for m in numbers if m.start() > number.start()), len(claim.context))
     preceding = max((m.end() for m in numbers if m.end() <= number.start()), default=0)
-    for text, reverse in (
-        (claim.context[number.end() : following], False),
-        (claim.context[preceding : number.start()], True),
-    ):
-        ranked = []
+    right = re.split(r"[;|\n]", claim.context[number.end() : following], maxsplit=1)[0]
+    left = re.split(r"[;\n]", claim.context[preceding : number.start()])[-1]
+    # A label/value table uses the immediately preceding nonempty cell.
+    # Do not search onward into the next column or the next row.
+    if "|" in left:
+        left = left.rstrip(" \t|").rsplit("|", 1)[-1]
+    ranked = []
+    for text, reverse in ((right, False), (left, True)):
         for label in sources:
             matches = [
                 m
@@ -202,8 +218,8 @@ def _source_for_claim(claim: NumericClaim, sources: dict) -> str | None:
             if matches:
                 distance = min(len(text) - m.end() if reverse else m.start() for m in matches)
                 ranked.append((distance, label))
-        if ranked:
-            closest = min(distance for distance, _ in ranked)
-            labels = [label for distance, label in ranked if distance == closest]
-            return labels[0] if len(labels) == 1 else None
+    if ranked:
+        closest = min(distance for distance, _ in ranked)
+        labels = {label for distance, label in ranked if distance == closest}
+        return labels.pop() if len(labels) == 1 else None
     return None

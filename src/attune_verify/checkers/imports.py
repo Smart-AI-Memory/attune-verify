@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from attune_verify._extract import CodeFence
+from attune_verify._process import probe_scope, run_probe
 from attune_verify.claims import Claim, record
 from attune_verify.result import Finding, FindingKind
 
@@ -48,8 +49,30 @@ def check_imports(
     claims: list[Claim] | None = None,
 ) -> list[Finding]:
     """Check each module/symbol; report malformed explicitly tagged Python."""
+    with probe_scope():
+        return _check_imports(fences, env_python, claims=claims)
+
+
+def _check_imports(
+    fences: list[CodeFence], env_python: str, *, claims: list[Claim] | None
+) -> list[Finding]:
     findings = []
-    cache: dict[tuple[str, str], bool] = {}
+    cache: dict[tuple[str, str], bool | str] = {}
+
+    def resolves(module: str, symbol: str = "") -> bool:
+        key = (module, symbol)
+        if key not in cache:
+            try:
+                cache[key] = (
+                    _probe(module, symbol, env_python) if symbol else _resolves(module, env_python)
+                )
+            except (OSError, subprocess.TimeoutExpired, RuntimeError, ValueError, TypeError) as exc:
+                cache[key] = str(exc)
+        result = cache[key]
+        if isinstance(result, str):
+            raise RuntimeError(result)
+        return result
+
     for fence in fences:
         if fence.language not in ("python", "py", ""):
             continue
@@ -63,6 +86,18 @@ def check_imports(
                 )
                 findings.append(finding)
                 record(claims, "imports", "Python syntax", fence.content, location, finding)
+            continue
+        except (RecursionError, MemoryError) as exc:
+            location = f"line {(fence.line or 0) + 1}"
+            finding = Finding(
+                FindingKind.INVALID_CODE,
+                f"Python syntax could not be parsed ({type(exc).__name__}: {exc})",
+                fence.content,
+                location,
+                "warning",
+            )
+            findings.append(finding)
+            record(claims, "imports", "Python syntax", fence.content, location, finding)
             continue
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -87,15 +122,9 @@ def check_imports(
                 subject = module + (":" + symbol if symbol else "")
                 finding = None
                 try:
-                    key = (module, "")
-                    if key not in cache:
-                        cache[key] = _resolves(module, env_python)
-                    resolved = cache[key]
+                    resolved = resolves(module)
                     if resolved and symbol:
-                        key = (module, symbol)
-                        if key not in cache:
-                            cache[key] = _probe(module, symbol, env_python)
-                        resolved = cache[key]
+                        resolved = resolves(module, symbol)
                     if not resolved:
                         finding = Finding(
                             FindingKind.UNRESOLVED_IMPORT,
@@ -103,7 +132,13 @@ def check_imports(
                             evidence,
                             location,
                         )
-                except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                except (
+                    OSError,
+                    subprocess.TimeoutExpired,
+                    RuntimeError,
+                    ValueError,
+                    TypeError,
+                ) as exc:
                     finding = Finding(
                         FindingKind.UNRESOLVED_IMPORT,
                         f"Import '{subject}' could not be verified ({exc})",
@@ -133,17 +168,15 @@ def _resolves(module: str, env_python: str) -> bool:
 
 def _probe(module: str, symbol: str, env_python: str) -> bool:
     """Read a framed child result, ignoring package initializer stdout."""
-    result = subprocess.run(
-        [env_python, "-c", _PROBE, module, symbol],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=10,
-    )
+    result = run_probe([env_python, "-c", _PROBE, module, symbol])
     lines = [line for line in result.stdout.splitlines() if line.startswith("ATTUNE_PROBE:")]
     if result.returncode or not lines:
         raise RuntimeError("Import probe failed: " + result.stderr[-500:])
     payload = json.loads(lines[-1].partition(":")[2])
+    if not isinstance(payload, dict):
+        raise RuntimeError("Import probe returned an invalid result object")
     if "error" in payload:
-        raise RuntimeError(payload["error"])
+        raise RuntimeError(str(payload["error"]))
+    if type(payload.get("exists")) is not bool:
+        raise RuntimeError("Import probe result must contain a boolean exists field")
     return payload["exists"]

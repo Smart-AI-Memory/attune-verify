@@ -9,6 +9,7 @@ from pathlib import Path
 
 from attune_verify import VerifyContext
 from attune_verify._extract import extract_code_fences
+from attune_verify._process import ProbeBudget, probe_scope, run_probe
 from attune_verify.checkers.imports import check_imports
 from attune_verify.claims import Claim
 from attune_verify.files import contained, read_text
@@ -52,11 +53,8 @@ def fingerprint(subject: str, env_python: str) -> dict:
     ):
         return {"error": "Unsupported Python import subject"}
     try:
-        process = subprocess.run(
+        process = run_probe(
             [env_python, "-c", _FINGERPRINT, module, symbol],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
             timeout=10,
         )
         lines = [
@@ -68,12 +66,23 @@ def fingerprint(subject: str, env_python: str) -> dict:
         if not isinstance(result, dict):
             return {"error": "Invalid artifact probe response"}
         return result
-    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
         return {"error": str(exc)}
 
 
 def capture(files: list[Path], context: VerifyContext) -> dict:
     """Capture supported import locations and fingerprints for later rechecks."""
+    with probe_scope(
+        ProbeBudget(
+            max_attempts=context.max_probe_attempts,
+            timeout_seconds=context.probe_timeout_seconds,
+            max_output_bytes=context.max_probe_output_bytes,
+        )
+    ):
+        return _capture(files, context)
+
+
+def _capture(files: list[Path], context: VerifyContext) -> dict:
     root = Path(context.project_root).resolve()
     documents = []
     for filename in files:
@@ -110,6 +119,17 @@ def capture(files: list[Path], context: VerifyContext) -> dict:
 
 def impact(receipt: dict, context: VerifyContext) -> dict:
     """Report recheck locations; saved artifact paths are never opened."""
+    with probe_scope(
+        ProbeBudget(
+            max_attempts=context.max_probe_attempts,
+            timeout_seconds=context.probe_timeout_seconds,
+            max_output_bytes=context.max_probe_output_bytes,
+        )
+    ):
+        return _impact(receipt, context)
+
+
+def _impact(receipt: dict, context: VerifyContext) -> dict:
     if (
         not isinstance(receipt, dict)
         or receipt.get("schema_version") != 1
