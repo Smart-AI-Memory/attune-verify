@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from attune_verify.context import VerifyContext
 from attune_verify.files import contained, read_text
@@ -58,8 +58,10 @@ def load_context(path: Path) -> VerifyContext:
             if (
                 not isinstance(pattern, str)
                 or not pattern
-                or Path(pattern).is_absolute()
+                or Path(pattern).anchor
+                or PureWindowsPath(pattern).anchor
                 or ".." in Path(pattern).parts
+                or ".." in PureWindowsPath(pattern).parts
             ):
                 raise ValueError("Count globs must be relative and cannot traverse parents")
             counts[label] = _glob_counter(root, pattern)
