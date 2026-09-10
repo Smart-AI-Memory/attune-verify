@@ -195,7 +195,7 @@ def _mask_code(content: str) -> str:
     """
     masked = strip_code_fences(content)
     runs = list(re.finditer(r"`+", masked))
-    boundaries = [m.end() for m in re.finditer(r"\n[ \t]*\n", masked)]
+    boundaries = [m.end() for m in re.finditer(r"\r?\n[ \t]*\r?\n", masked)]
     next_run: dict[int, tuple[int, int]] = {}
     later: dict[tuple[int, int], tuple[int, int]] = {}
     for run in reversed(runs):

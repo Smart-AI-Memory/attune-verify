@@ -175,6 +175,15 @@ def test_release_can_require_optional_extra_without_a_network_call(dist):
     release.verify_evidence(dist, evidence, ref=REF, sha=SHA, smoke=smoke, require_rag_extra=True)
 
 
+def test_release_requires_crlf_paragraph_boundary_receipt(dist):
+    evidence, smoke = _evidence(dist)
+    smoke["checks"][0]["cases"] = [
+        case for case in smoke["checks"][0]["cases"] if case["name"] != "crlf-paragraph-boundary"
+    ]
+    with pytest.raises(ValueError, match="required behavioral evidence"):
+        release.verify_evidence(dist, evidence, ref=REF, sha=SHA, smoke=smoke)
+
+
 @pytest.mark.parametrize(
     "change",
     [

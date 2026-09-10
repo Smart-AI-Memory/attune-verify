@@ -29,6 +29,7 @@ SMOKE_EXIT_CODES = {
     "console-entrypoint": 0,
     "eof-import": 1,
     "nested-link": 1,
+    "crlf-paragraph-boundary": 1,
     "exact-flag": 1,
     "count-source": 1,
     "malformed-link-retains-refutation": 1,

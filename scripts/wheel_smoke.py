@@ -118,6 +118,7 @@ def smoke_artifact(artifact: Path, work: Path, *, rag_extra: bool, expected_vers
     maintenance = {
         "eof-import": "[good](good.md)\n```python\nimport absent_release_smoke_package\n",
         "nested-link": "[good](good.md)\n[bad [nested]](absent.md)",
+        "crlf-paragraph-boundary": ("`unmatched\r\n\r\n[bad](missing.md) `\r\n\r\n[good](good.md)"),
         "exact-flag": "`sample --verbose.extra`",
         "count-source": "Tests: 12\nplugins: 12.",
         "malformed-link-retains-refutation": "[before](before.md) [bad](\x00) [after](after.md)",
@@ -126,7 +127,10 @@ def smoke_artifact(artifact: Path, work: Path, *, rag_extra: bool, expected_vers
         ),
     }
     for name, content in maintenance.items():
-        (work / "maintenance.md").write_text(content, encoding="utf-8")
+        if name == "crlf-paragraph-boundary":
+            (work / "maintenance.md").write_bytes(content.encode("utf-8"))
+        else:
+            (work / "maintenance.md").write_text(content, encoding="utf-8")
         report = run(
             name, ["check", "maintenance.md", "--context", "context.json", "--format", "json"], 1
         )
@@ -140,6 +144,11 @@ def smoke_artifact(artifact: Path, work: Path, *, rag_extra: bool, expected_vers
             assert any(
                 claim["subject"] == "absent.md" and claim["status"] == "refuted" for claim in claims
             )
+        elif name == "crlf-paragraph-boundary":
+            assert [(claim["subject"], claim["status"], claim["location"]) for claim in claims] == [
+                ("missing.md", "refuted", "line 3"),
+                ("good.md", "verified", "line 5"),
+            ]
         elif name == "exact-flag":
             assert claims[0]["subject"] == "sample --verbose.extra"
         elif name == "malformed-link-retains-refutation":

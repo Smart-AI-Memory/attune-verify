@@ -82,6 +82,32 @@ def test_unmatched_code_span_cannot_hide_links_in_later_paragraphs():
     assert [(link.target, link.line) for link in extract_links(content)] == [("real.md", 3)]
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+@pytest.mark.parametrize("blank", ["", " \t "], ids=["empty", "space-tab"])
+def test_blank_paragraph_boundaries_preserve_claims_across_line_endings(tmp_path, newline, blank):
+    (tmp_path / "real.md").touch()
+    content = newline.join(
+        [
+            "`unmatched",
+            blank,
+            "[bad](missing.md) and 99 widgets `",
+            blank,
+            "[good](real.md)",
+            blank,
+            "There are 12 widgets.",
+        ]
+    )
+    result = verify(content, VerifyContext(project_root=tmp_path, count_sources={"widgets": 12}))
+    assert not result.ok and not result.passes()
+    assert [(c.kind, c.subject, c.status.value, c.location) for c in result.claims] == [
+        ("links", "missing.md", "refuted", "line 3"),
+        ("links", "real.md", "verified", "line 5"),
+        ("counts", "99", "refuted", "line 3"),
+        ("counts", "12", "verified", "line 7"),
+    ]
+    assert [c.source for c in result.claims if c.kind == "counts"] == ["widgets", "widgets"]
+
+
 def test_nul_link_does_not_erase_other_refutations(tmp_path):
     content = "[before](before.md) [bad](\x00) [after](after.md)"
     result = verify(content, VerifyContext(project_root=tmp_path))
