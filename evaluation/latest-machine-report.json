@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "unit": "document error detection",
+  "cases": [
+    {
+      "id": "readme-quickstart",
+      "expected_error": false,
+      "predicted_error": false,
+      "status": "verified",
+      "unknown_claims": 0,
+      "supported_claims": 3,
+      "elapsed_seconds": 0.24017024994827807,
+      "human_heldout": false
+    },
+    {
+      "id": "readme-quickstart-broken-symbol",
+      "expected_error": true,
+      "predicted_error": true,
+      "status": "refuted",
+      "unknown_claims": 0,
+      "supported_claims": 3,
+      "elapsed_seconds": 0.24663258297368884,
+      "human_heldout": false
+    },
+    {
+      "id": "readme-positioning-human-review",
+      "expected_error": null,
+      "predicted_error": false,
+      "status": "unknown",
+      "unknown_claims": 0,
+      "supported_claims": 0,
+      "elapsed_seconds": 5.02921175211668e-05,
+      "human_heldout": false
+    }
+  ],
+  "metrics": {
+    "documents": 2,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "abstention_rate": 0.0,
+    "unknown_claims": 0
+  },
+  "human_validated_metrics": null,
+  "unlabeled_cases": 1,
+  "elapsed_seconds": 0.4868531250394881
+}

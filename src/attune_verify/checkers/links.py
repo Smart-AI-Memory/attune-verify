@@ -7,12 +7,14 @@ from typing import List, Optional
 from urllib.parse import unquote
 
 from attune_verify._extract import MarkdownLink
+from attune_verify.claims import Claim, record
 from attune_verify.result import Finding, FindingKind
 
 
-def check_links(
+def _check_links(
     links: List[MarkdownLink],
     project_root: Optional[Path],
+    document_path: Optional[Path] = None,
 ) -> List[Finding]:
     """Verify markdown link targets exist relative to project_root.
 
@@ -73,7 +75,13 @@ def check_links(
         # Site-absolute targets (/docs/page.md) mean root-relative in generated
         # docs; joining them raw would make Path use the filesystem root.
         rel = path_part.lstrip("/") if path_part.startswith("/") else path_part
-        resolved = _resolve_target(root, rel)
+        base = root
+        if document_path is not None and not path_part.startswith("/"):
+            document = (root / document_path).resolve()
+            if not document.is_relative_to(root):
+                raise ValueError("document_path escapes project_root")
+            base = document.parent
+        resolved = _resolve_target(base, rel)
         if not resolved.is_relative_to(root):
             # ../-traversal out of the declared truth boundary: the file may
             # exist on disk, but it cannot be verified AS a project link.
@@ -130,3 +138,34 @@ def _resolve_target(root: Path, rel: str) -> Path:
         return resolved
     decoded_path = (root / decoded).resolve()
     return decoded_path if decoded_path.exists() else resolved
+
+
+def check_links(
+    links: List[MarkdownLink],
+    project_root: Optional[Path],
+    *,
+    claims: list[Claim] | None = None,
+    document_path: Optional[Path] = None,
+) -> List[Finding]:
+    """Check local files and explicitly account for unsupported URL/anchor checks."""
+    findings = []
+    for link in links:
+        checked = _check_links([link], project_root, document_path)
+        findings.extend(checked)
+        target = link.target or f"reference:{link.label}"
+        unknown = None
+        if link.target and link.target.startswith(("http://", "https://", "mailto:")):
+            unknown = "External targets are not fetched"
+        elif link.target and "#" in link.target:
+            unknown = "File existence does not verify a heading fragment"
+        record(
+            claims,
+            "links",
+            target,
+            _evidence(link),
+            f"line {link.line}" if link.line else None,
+            checked[0] if checked else None,
+            unknown=unknown,
+            source=str(project_root) if project_root is not None else None,
+        )
+    return findings

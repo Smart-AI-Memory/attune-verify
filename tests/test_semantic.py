@@ -71,3 +71,30 @@ def test_rag_verdict_unfaithful_carries_unsupported_claims():
     assert verdict.faithful is False
     assert verdict.issues == ["the /run route does not exist"]
     assert verdict.raw is result
+
+
+def test_malformed_semantic_verdicts_never_verify():
+    for verdict in (
+        SemanticVerdict(True, ["contradiction"]),
+        SemanticVerdict("yes", []),
+        SemanticVerdict(True, [42]),
+    ):
+
+        class MalformedJudge:
+            def score(self, *args, chosen=verdict, **kwargs):
+                return chosen
+
+        result = verify(
+            "plain prose", VerifyContext(semantic=True, judge=MalformedJudge(), passages="source")
+        )
+        assert result.status == "unknown"
+        assert not result.passes()
+
+
+def test_rag_adapter_rejects_malformed_result():
+    import pytest
+
+    from attune_verify.semantic.rag_adapter import _to_verdict
+
+    with pytest.raises(ValueError):
+        _to_verdict(object())

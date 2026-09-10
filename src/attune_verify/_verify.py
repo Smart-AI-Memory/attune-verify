@@ -14,6 +14,7 @@ from attune_verify.checkers.counts import check_counts
 from attune_verify.checkers.flags import check_flags
 from attune_verify.checkers.imports import check_imports
 from attune_verify.checkers.links import check_links
+from attune_verify.claims import Claim, Observations, record
 from attune_verify.context import VerifyContext
 from attune_verify.result import Finding, FindingKind, VerifyResult
 
@@ -59,25 +60,36 @@ def verify(content: str, context: VerifyContext) -> VerifyResult:
 
 def _check_imports(content: str, context: VerifyContext) -> List[Finding]:
     fences = extract_code_fences(content)
-    return check_imports(fences, env_python=context.env_python)
+    claims: list[Claim] = []
+    findings = check_imports(fences, env_python=context.env_python, claims=claims)
+    return Observations(findings, claims)
 
 
 def _check_flags(content: str, context: VerifyContext) -> List[Finding]:
-    return check_flags(
+    claims: list[Claim] = []
+    findings = check_flags(
         content,
         help_commands=context.help_commands,
         allowed_help_cmds=context.allowed_help_cmds,
+        claims=claims,
     )
+    return Observations(findings, claims)
 
 
 def _check_links(content: str, context: VerifyContext) -> List[Finding]:
     links = extract_links(content)
-    return check_links(links, project_root=context.project_root)
+    claims: list[Claim] = []
+    findings = check_links(
+        links, project_root=context.project_root, claims=claims, document_path=context.document_path
+    )
+    return Observations(findings, claims)
 
 
 def _check_counts(content: str, context: VerifyContext) -> List[Finding]:
-    claims = extract_numeric_claims(content)
-    return check_counts(claims, count_sources=context.count_sources)
+    numeric = extract_numeric_claims(content)
+    claims: list[Claim] = []
+    findings = check_counts(numeric, count_sources=context.count_sources, observations=claims)
+    return Observations(findings, claims)
 
 
 def _run_checker(
@@ -91,6 +103,7 @@ def _run_checker(
     try:
         findings = fn(content, context)  # type: ignore[operator]
         result.findings.extend(findings)
+        result.claims.extend(getattr(findings, "claims", []))
         result.checked.append(name)
     except Exception as exc:  # noqa: BLE001
         # INTENTIONAL: individual checker failures must not abort the run.
@@ -138,6 +151,7 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
                 severity="warning",
             )
         )
+        record(result.claims, "semantic", "document faithfulness", content, unknown=detail)
         return
 
     try:
@@ -147,8 +161,20 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
             passages=context.passages,
         )
         result.semantic_ran = True
+        if not isinstance(verdict.issues, list) or not all(
+            isinstance(i, str) for i in verdict.issues
+        ):
+            raise ValueError("Semantic verdict issues must be a list of strings")
+        if type(verdict.faithful) is not bool:
+            raise ValueError("Semantic verdict faithful must be a boolean")
+        if verdict.faithful and verdict.issues:
+            raise ValueError("Faithful verdict contradicts its issues")
+        if verdict.faithful:
+            record(result.claims, "semantic", "document faithfulness", content)
         if not verdict.faithful:
-            for issue in verdict.issues:
+            for issue in verdict.issues or [
+                "Semantic judge rejected the content without an explanation"
+            ]:
                 result.findings.append(
                     Finding(
                         kind=FindingKind.SEMANTIC,
@@ -157,6 +183,14 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
                         severity="error",
                     )
                 )
+        if not verdict.faithful:
+            record(
+                result.claims,
+                "semantic",
+                "document faithfulness",
+                content,
+                finding=result.findings[-1],
+            )
     except Exception as exc:  # noqa: BLE001
         # INTENTIONAL: semantic layer is opt-in; failures degrade gracefully.
         logger.exception("semantic judge raised: %s", exc)
@@ -167,4 +201,7 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
                 evidence="",
                 severity="warning",
             )
+        )
+        record(
+            result.claims, "semantic", "document faithfulness", content, finding=result.findings[-1]
         )

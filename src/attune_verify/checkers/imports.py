@@ -1,127 +1,149 @@
-"""Import checker — verifies Python imports in code fences resolve."""
+"""Resolve module and symbol claims in a bounded child interpreter.
+
+Never execute the generated fence. Imports may execute trusted environment
+package initializers; a child process is not a security sandbox.
+"""
 
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
-from typing import List
 
 from attune_verify._extract import CodeFence
+from attune_verify.claims import Claim, record
 from attune_verify.result import Finding, FindingKind
+
+# Fixed program: untrusted identifiers travel as argv, never as Python code.
+_PROBE = """
+import importlib, importlib.util, json, sys
+module, symbol = sys.argv[1:3]
+try:
+    if not symbol:
+        exists = importlib.util.find_spec(module) is not None
+    else:
+        loaded = importlib.import_module(module)
+        exists = hasattr(loaded, symbol)
+        if not exists:
+            importlib.import_module(module + '.' + symbol)
+            exists = True
+    result = {'exists': exists}
+except ModuleNotFoundError as exc:
+    target = module + ('.' + symbol if symbol else '')
+    if exc.name and (target == exc.name or target.startswith(exc.name + '.')):
+        result = {'exists': False}
+    else:
+        result = {'error': str(exc)}
+except Exception as exc:
+    result = {'error': type(exc).__name__ + ': ' + str(exc)}
+print('ATTUNE_PROBE:' + json.dumps(result))
+"""
 
 
 def check_imports(
-    fences: List[CodeFence],
+    fences: list[CodeFence],
     env_python: str = sys.executable,
-) -> List[Finding]:
-    """Resolve every import in Python code fences against env_python.
-
-    Each import is resolved by its FULL dotted module path, so a private
-    submodule of an installed package (``from pkg.fake_sub import X``) is
-    flagged — not just a fully-unknown top-level package.
-
-    Args:
-        fences: Code fences extracted from generated content.
-        env_python: Python interpreter to resolve imports against.
-
-    Returns:
-        List of findings for unresolvable imports.
-    """
-    findings: List[Finding] = []
-    # Each resolution is a subprocess; repeated imports of the same module
-    # across fences are common, so resolve each module once per call.
-    resolution_cache: dict[str, bool] = {}
+    *,
+    claims: list[Claim] | None = None,
+) -> list[Finding]:
+    """Check each module/symbol; report malformed explicitly tagged Python."""
+    findings = []
+    cache: dict[tuple[str, str], bool] = {}
     for fence in fences:
-        # "" is a bare fence: LLM output routinely omits the language tag, so
-        # parse speculatively — non-Python content fails ast.parse and is skipped.
         if fence.language not in ("python", "py", ""):
             continue
         try:
             tree = ast.parse(fence.content)
-        except SyntaxError:
+        except SyntaxError as exc:
+            if fence.language:
+                location = f"line {(fence.line or 0) + (exc.lineno or 1)}"
+                finding = Finding(
+                    FindingKind.INVALID_CODE, f"Invalid Python: {exc.msg}", fence.content, location
+                )
+                findings.append(finding)
+                record(claims, "imports", "Python syntax", fence.content, location, finding)
             continue
         for node in ast.walk(tree):
-            for module in _modules_from_node(node):
-                location = f"line {fence.line}" if fence.line else None
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            evidence = ast.get_source_segment(fence.content, node) or ast.unparse(node)
+            location = f"line {(fence.line or 0) + node.lineno}"
+            if isinstance(node, ast.ImportFrom) and (
+                node.level or any(alias.name == "*" for alias in node.names)
+            ):
+                record(
+                    claims,
+                    "imports",
+                    evidence,
+                    evidence,
+                    location,
+                    unknown="Relative and wildcard imports require package/export context",
+                )
+                continue
+            for alias in node.names:
+                module = alias.name if isinstance(node, ast.Import) else node.module
+                symbol = "" if isinstance(node, ast.Import) else alias.name
+                subject = module + (":" + symbol if symbol else "")
+                finding = None
                 try:
-                    if module in resolution_cache:
-                        resolved = resolution_cache[module]
-                    else:
-                        resolved = _resolves(module, env_python)
-                        resolution_cache[module] = resolved
-                except (OSError, subprocess.TimeoutExpired) as exc:
-                    # Resolution infrastructure failed (bad env_python, timeout).
-                    # Degrade per-import — the remaining imports must still run.
-                    findings.append(
-                        Finding(
-                            kind=FindingKind.UNRESOLVED_IMPORT,
-                            detail=(
-                                f"Import '{module}' could not be verified "
-                                f"({type(exc).__name__}: {exc})"
-                            ),
-                            evidence=f"import {module}",
-                            location=location,
-                            severity="warning",
+                    key = (module, "")
+                    if key not in cache:
+                        cache[key] = _resolves(module, env_python)
+                    resolved = cache[key]
+                    if resolved and symbol:
+                        key = (module, symbol)
+                        if key not in cache:
+                            cache[key] = _probe(module, symbol, env_python)
+                        resolved = cache[key]
+                    if not resolved:
+                        finding = Finding(
+                            FindingKind.UNRESOLVED_IMPORT,
+                            f"Import '{subject}' does not resolve in {env_python}",
+                            evidence,
+                            location,
                         )
+                except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                    finding = Finding(
+                        FindingKind.UNRESOLVED_IMPORT,
+                        f"Import '{subject}' could not be verified ({exc})",
+                        evidence,
+                        location,
+                        "warning",
                     )
-                    continue
-                if not resolved:
-                    findings.append(
-                        Finding(
-                            kind=FindingKind.UNRESOLVED_IMPORT,
-                            detail=f"Import '{module}' does not resolve in {env_python}",
-                            evidence=f"import {module}",
-                            location=location,
-                            severity="error",
-                        )
-                    )
+                if finding:
+                    findings.append(finding)
+                record(claims, "imports", subject, evidence, location, finding, source=env_python)
     return findings
 
 
 def _modules_from_node(node: ast.AST) -> list[str]:
-    """Return every FULL dotted module path imported by an import node.
-
-    ``find_spec`` resolves submodules (e.g. ``attune.ops._readers``), so
-    returning the full path — not just the top-level package — catches a
-    private submodule of an *installed* package that does not actually
-    exist. Returning only ``attune`` would let ``from attune.ops._readers
-    import X`` pass when ``attune`` is installed (the v0.1.0 gap).
-
-    A single statement may import several modules (``import a, b, c``); each
-    is returned so a fake name hiding behind a real one is still flagged.
-    Relative imports (``from . import x``, ``from .pkg import y``) cannot be
-    resolved outside their package context and are skipped — flagging them
-    would be a false positive.
-    """
+    """Legacy internal extractor of absolute module names."""
     if isinstance(node, ast.Import):
-        return [alias.name for alias in node.names]
-    if isinstance(node, ast.ImportFrom):
-        if node.level and node.level > 0:  # relative import — unresolvable here
-            return []
-        if node.module:
-            return [node.module]
+        return [a.name for a in node.names]
+    if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+        return [node.module]
     return []
 
 
 def _resolves(module: str, env_python: str) -> bool:
-    """Return True if module is importable in env_python.
+    """Resolve a full module name without interpolating generated code."""
+    return _probe(module, "", env_python)
 
-    The module name travels via argv, not f-string interpolation into the
-    -c program — defense in depth (ast already guarantees identifier-safe
-    names, but the child program must not depend on that).
-    """
+
+def _probe(module: str, symbol: str, env_python: str) -> bool:
+    """Read a framed child result, ignoring package initializer stdout."""
     result = subprocess.run(
-        [
-            env_python,
-            "-c",
-            "import importlib.util, sys; "
-            "print(importlib.util.find_spec(sys.argv[1]) is not None)",
-            module,
-        ],
+        [env_python, "-c", _PROBE, module, symbol],
         capture_output=True,
         text=True,
         encoding="utf-8",
         timeout=10,
     )
-    return result.stdout.strip() == "True"
+    lines = [line for line in result.stdout.splitlines() if line.startswith("ATTUNE_PROBE:")]
+    if result.returncode or not lines:
+        raise RuntimeError("Import probe failed: " + result.stderr[-500:])
+    payload = json.loads(lines[-1].partition(":")[2])
+    if "error" in payload:
+        raise RuntimeError(payload["error"])
+    return payload["exists"]

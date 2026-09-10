@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from typing import Dict, FrozenSet, List, Optional
 
 from attune_verify._extract import extract_code_fences, strip_code_fences
+from attune_verify.claims import Claim, record
 from attune_verify.result import Finding, FindingKind
 
 # One inline code span (`mytool --flag`); fences are handled separately.
@@ -27,6 +29,8 @@ def check_flags(
     content: str,
     help_commands: Dict[str, str],
     allowed_help_cmds: FrozenSet[str],
+    *,
+    claims: list[Claim] | None = None,
 ) -> List[Finding]:
     """Verify flags referenced in content exist in command --help output.
 
@@ -42,6 +46,8 @@ def check_flags(
         List of findings for unverifiable or unknown flags.
     """
     findings: List[Finding] = []
+    help_commands = dict(help_commands)  # per-call help cache
+    commands = set(help_commands) | set(allowed_help_cmds)
     # Inline spans: `--flag` alone or a whole command in one span
     # (`mytool --flag`). Fence bodies are stripped first so they are never
     # double-scanned as inline code.
@@ -49,29 +55,55 @@ def check_flags(
     for match in _INLINE_CODE_RE.finditer(prose):
         span = match.group(1)
         for flag_match in _FLAG_TOKEN_RE.finditer(span):
-            cmd = _guess_command(span[: flag_match.start()])
-            if cmd == "unknown":
+            cmd = _command(span, commands)
+            if cmd == "unknown" and span.lstrip().startswith("-"):
                 # Bare `--flag` span: the command is named in the prose
                 # before it ("Run mytool with `--flag`").
                 cmd = _guess_command(prose[max(0, match.start() - 30) : match.start()])
             finding = _verify_flag(
                 flag_match.group(1), cmd, f"`{span}`", help_commands, allowed_help_cmds
             )
+            location = f"line {prose[:match.start()].count(chr(10)) + 1}"
             if finding is not None:
+                finding = Finding(
+                    finding.kind, finding.detail, finding.evidence, location, finding.severity
+                )
                 findings.append(finding)
+            record(
+                claims,
+                "flags",
+                f"{cmd} {flag_match.group(1)}",
+                f"`{span}`",
+                location,
+                finding,
+                source=cmd,
+            )
     # Shell fences: each line is a command whose flags are claims too.
     for fence in extract_code_fences(content):
         if fence.language not in _SHELL_LANGS:
             continue
-        for line in fence.content.splitlines():
+        for index, line in enumerate(fence.content.splitlines(), start=1):
             command_line = line.strip().lstrip("$").strip()
             for flag_match in _FLAG_TOKEN_RE.finditer(command_line):
-                cmd = _guess_command(command_line[: flag_match.start()])
+                cmd = _command(command_line, commands)
                 finding = _verify_flag(
                     flag_match.group(1), cmd, command_line, help_commands, allowed_help_cmds
                 )
+                location = f"line {(fence.line or 0) + index}"
                 if finding is not None:
+                    finding = Finding(
+                        finding.kind, finding.detail, finding.evidence, location, finding.severity
+                    )
                     findings.append(finding)
+                record(
+                    claims,
+                    "flags",
+                    f"{cmd} {flag_match.group(1)}",
+                    command_line,
+                    location,
+                    finding,
+                    source=cmd,
+                )
     return findings
 
 
@@ -199,5 +231,26 @@ def _get_help(
             )
         except (OSError, subprocess.TimeoutExpired):
             return None
-        return result.stdout + result.stderr
+        if result.returncode:
+            return None
+        help_commands[cmd] = result.stdout + result.stderr
+        return help_commands[cmd]
     return None
+
+
+def _command(text: str, declared: set[str]) -> str:
+    """Use a declared command prefix, not the last positional argument.
+
+    Complex shell syntax remains unknown rather than being attributed to the
+    wrong command. Never execute generated argument strings.
+    """
+    try:
+        words = shlex.split(text)
+    except ValueError:
+        return "unknown"
+    if not words or words[0].startswith("-"):
+        return "unknown"
+    if any(token in text for token in (";", "|", "&&", "$(", "`")):
+        return "unknown"
+    candidates = [cmd for cmd in declared if words[: len(shlex.split(cmd))] == shlex.split(cmd)]
+    return max(candidates, key=lambda cmd: len(shlex.split(cmd))) if candidates else words[0]

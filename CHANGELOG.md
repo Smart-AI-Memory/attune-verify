@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-10
+
+Adds explicit verification coverage, publication tooling, and Python API evidence
+receipts while preserving the legacy error-only API.
+
+- Resolve named Python imports and report malformed explicit Python fences.
+- Fix multi-count source binding, command/argument attribution, and negative
+  semantic verdicts with empty explanations.
+- Add explicit claim observations and opt-in strict publication policy while
+  preserving legacy `ok` and error-only `raise_if_failed` behavior.
+- Add CLI, JSON contexts/reports, pre-commit hook, and installed-wheel CI smoke.
+- Add document evaluation with separate human held-out metrics and a small
+  provenance-bearing seed packet.
+- Add conservative Python import artifact receipts and document change impact.
+
 ## [0.5.0] - 2026-08-11
 
 Closes the last silent-pass class in the flag checker: short flags were

@@ -37,3 +37,5 @@ jobs:
           black --check src tests
       - name: Test (with coverage + corpus precision/recall gate)
         run: pytest --cov=attune_verify --cov-report=term-missing
+      - name: Installed wheel API and CLI round trip
+        run: python scripts/wheel_smoke.py

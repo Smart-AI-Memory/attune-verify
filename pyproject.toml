@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "attune-verify"
-version = "0.5.0"
+version = "0.6.0"
 description = "Generation fact-checker for the attune-* family. Verifies named entities in LLM output actually exist — imports import, CLI flags are real, links resolve, counts match source."
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
@@ -30,6 +30,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+attune-verify = "attune_verify.cli:main"
+
 [project.optional-dependencies]
 rag = ["attune-rag>=0.2.0"]
 dev = [
@@ -39,6 +42,8 @@ dev = [
     "ruff>=0.4.0",
     "black>=24.0",
     "build>=1.0",
+    "setuptools>=68.0",
+    "wheel",
     "twine>=5.0",
     "mutmut>=3.0",
 ]

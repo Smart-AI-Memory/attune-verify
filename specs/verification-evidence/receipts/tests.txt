@@ -1,0 +1,33 @@
+........................................................................ [ 26%]
+........................................................................ [ 53%]
+........................................................................ [ 80%]
+.....................................................                    [100%]
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.11.14-final-0 _______________
+
+Name                                        Stmts   Miss  Cover   Missing
+-------------------------------------------------------------------------
+src/attune_verify/__init__.py                   7      0   100%
+src/attune_verify/__main__.py                   2      2     0%   3-5
+src/attune_verify/_extract.py                 132      0   100%
+src/attune_verify/_verify.py                   82      0   100%
+src/attune_verify/checkers/__init__.py          0      0   100%
+src/attune_verify/checkers/counts.py           76      9    88%   48, 119-123, 150, 168, 186
+src/attune_verify/checkers/flags.py           102      3    97%   235, 249-250
+src/attune_verify/checkers/imports.py          72      6    92%   122-126, 145
+src/attune_verify/checkers/links.py            63      5    92%   60, 80-83
+src/attune_verify/claims.py                    42      0   100%
+src/attune_verify/cli.py                       74      1    99%   112
+src/attune_verify/context.py                   16      0   100%
+src/attune_verify/evaluation.py                27      0   100%
+src/attune_verify/evidence.py                  71      3    96%   66, 69, 87
+src/attune_verify/files.py                     39      1    97%   56
+src/attune_verify/manifest.py                  52      0   100%
+src/attune_verify/result.py                    59      0   100%
+src/attune_verify/semantic/__init__.py          0      0   100%
+src/attune_verify/semantic/protocol.py         11      0   100%
+src/attune_verify/semantic/rag_adapter.py      25     15    40%   52-84
+-------------------------------------------------------------------------
+TOTAL                                         952     45    95%
+Coverage JSON written to file /private/tmp/attune-verify-coverage.json
+269 passed in 5.95s
