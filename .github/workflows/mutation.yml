@@ -28,6 +28,10 @@ jobs:
         # install registers a finder that would shadow it. Drop the package
         # (keeping its deps) so mutations actually take effect.
         run: pip uninstall -y attune-verify
+      - name: Disable crash collectors on the disposable runner
+        # Piped collectors ignore RLIMIT_CORE and can delay SIGXCPU termination.
+        # The mutation runner sets RLIMIT_CORE=0 for itself and its children.
+        run: sudo sysctl -w kernel.core_pattern=core
       - name: Run mutation testing
         # Leave time inside the job limit to retain evidence from a stalled run.
         timeout-minutes: 40

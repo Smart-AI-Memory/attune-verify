@@ -152,7 +152,9 @@ killed mutant; forced termination fails the run. This polled limit bounds runawa
 workers but is not a hard memory reservation. The runner records worker identity,
 elapsed time, CPU, memory, and resource-stop events. It disables ordinary core
 files and records the kernel core-dump configuration; a host pipe handler can
-override that suppression.
+override that suppression. Both Linux CI workflows replace the pipe handler with
+a plain core-file pattern on their disposable runners, so the inherited zero
+core-file limit takes effect. This changes CI host configuration only.
 
 The mutation step has a 40-minute deadline inside the 45-minute job, leaving time
 for unconditional export and upload of partial metadata and diagnostics. An

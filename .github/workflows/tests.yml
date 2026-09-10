@@ -35,6 +35,11 @@ jobs:
         run: |
           ruff check src tests scripts
           black --check src tests scripts
+      - name: Disable crash collectors on the disposable runner
+        if: runner.os == 'Linux'
+        # The resource-stop regressions require prompt SIGXCPU termination.
+        # Their child processes set RLIMIT_CORE=0; piped collectors ignore it.
+        run: sudo sysctl -w kernel.core_pattern=core
       - name: Test (with coverage + corpus precision/recall gate)
         run: pytest --cov=attune_verify --cov-report=term-missing
       - name: Build distribution pair once

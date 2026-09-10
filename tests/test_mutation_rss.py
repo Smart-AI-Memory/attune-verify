@@ -110,6 +110,9 @@ def test_linux_rss_guard_real_children_and_classification(tmp_path, mode):
         .splitlines()
     ]
     actions = [event for event in events if "signal" in event]
+    if result.returncode != 0:
+        # Keep compact evidence visible if pytest truncates the command's stdout.
+        print(json.dumps({"status": status, "actions": actions}, indent=2))
     limits = json.loads((tmp_path / "worker-resource.json").read_text())["core_limits"]
     assert limits == [0, resource.getrlimit(resource.RLIMIT_CORE)[1]]
     assert status["rlimit_core"] == limits
