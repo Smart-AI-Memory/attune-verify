@@ -49,8 +49,8 @@ contract and strict `passes()` policy remain distinct.
   scanner and installed wheel/sdist checks with positive and negative CLI cases.
 - [Release acceptance and evidence requirements](docs/reliability.md), including
   exact artifact hashes, source/ref identity, offline RAG factory construction,
-  and required human approval before PyPI publication. Required-reviewer setup
-  remains pending owner approval. See the release packet for actual
+  and required human approval before PyPI publication. The required reviewer
+  was configured with owner approval. See the release packet for actual
   local and remote validation status; this changelog does not assert publication.
 
 ### Clarified

@@ -11,22 +11,22 @@ The deterministic core retains zero runtime dependencies. The public error-only
 `VerificationPolicy`. Additional verification categories and live model calls are
 outside this maintenance release.
 
-## Validation status
+## Validation contract
 
-This document defines the release contract. At documentation handoff on
-2026-09-10, final candidate evidence is still pending:
+The release evidence packet records execution status for the selected source and
+artifacts. This document defines the required checks; workflow configuration and
+test presence alone do not establish that they passed.
 
-| Evidence | Status |
+| Evidence | Release requirement |
 |---|---|
-| Final local full suite, lint, and corpus run for the release source SHA | Pending; development runs do not establish the final candidate's status. |
-| Final complete mutation result at the unchanged 75% threshold | Pending; no mutation pass is claimed here. |
-| Exact wheel/sdist installed checks and SHA-256 release packet | Pending; no distribution hashes are asserted here. |
-| Remote tests and mutation runs for the selected source SHA | Pending; workflow configuration is not execution evidence. |
-| Required-reviewer setup, human PyPI approval, and publication | Pending; the `pypi` environment currently has no protection rules. Configuring a required reviewer needs owner approval. No upload is asserted here. |
+| Full suite, lint, and corpus | Pass for the selected source and supported runtime matrix. |
+| Complete mutation result | Valid nonempty evidence at the unchanged 75% threshold. |
+| Exact wheel/sdist installed checks | Both distributions pass; retain their SHA-256 hashes. |
+| Remote tests and mutation | Successful push-to-main runs for the exact full source SHA. |
+| Human PyPI approval and publication | Required reviewer approves in Actions; verify published distribution hashes afterward. |
 
-The release evidence packet must resolve these entries for the selected source
-and artifacts. Never substitute a passing earlier checkout, a separately rebuilt
-wheel, or an interim test count for that packet.
+Never substitute a passing earlier checkout, a separately rebuilt wheel, or an
+interim test count for the release packet.
 
 ## Review findings and regression evidence
 
@@ -145,13 +145,12 @@ runs; a successful local macOS run does not establish Linux or Windows behavior.
 Corpus precision/recall and mutation gates apply to their configured scopes and
 must not be presented as representative field accuracy.
 
-The publishing workflow retains its `pypi` environment reference. Inspection on
-2026-09-10 found an empty `protection_rules` list, so that reference currently
-does not enforce a required human reviewer. Release acceptance requires owner
-approval to configure a required reviewer, followed by the human publication
-approval. Reviewer setup and publication are pending. A locally prepared packet,
-a tag, or a successful build does not imply either approval or a PyPI upload.
-Record those remote outcomes only after they are observed.
+Publication retains the `pypi` environment reference. The initial live audit on
+2026-09-10 found no reviewer protection. With owner authorization, the environment
+was updated and verified to require `silversurfer562` as its human reviewer.
+Confirm that protection before each release. The final approval remains the
+reviewer's own action in GitHub Actions; the agent must not approve it through
+the API. A prepared packet, tag, or successful build does not imply publication.
 
 ## Completion rule
 
