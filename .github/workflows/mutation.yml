@@ -29,8 +29,11 @@ jobs:
         # (keeping its deps) so mutations actually take effect.
         run: pip uninstall -y attune-verify
       - name: Run mutation testing
+        env:
+          ATTUNE_MUTATION_TMP_ROOT: ${{ runner.temp }}/attune-mutation
         run: |
-          mutmut run --max-children 1
+          mkdir -p "$ATTUNE_MUTATION_TMP_ROOT"
+          mutmut run --max-children 4
           mutmut export-cicd-stats
       - name: Gate on mutation score
         run: python scripts/mutation_gate.py 0.75
