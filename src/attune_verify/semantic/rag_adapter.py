@@ -22,7 +22,9 @@ def _to_verdict(result: object) -> SemanticVerdict:
     ``supported / (supported + unsupported)`` — so "faithful" here means
     no unsupported claims were found.
     """
-    unsupported = list(getattr(result, "unsupported_claims", None) or [])
+    unsupported = getattr(result, "unsupported_claims", None)
+    if not isinstance(unsupported, list) or not all(isinstance(x, str) for x in unsupported):
+        raise ValueError("Faithfulness result must supply an unsupported_claims list")
     return SemanticVerdict(
         faithful=not unsupported,
         issues=unsupported,

@@ -14,6 +14,7 @@ Public API::
 from __future__ import annotations
 
 from attune_verify._verify import verify
+from attune_verify.claims import Claim, ClaimStatus, VerificationPolicy
 from attune_verify.context import VerifyContext
 from attune_verify.result import (
     Finding,
@@ -25,6 +26,9 @@ from attune_verify.result import (
 
 __version__ = "0.5.0"
 __all__ = [
+    "Claim",
+    "ClaimStatus",
+    "VerificationPolicy",
     "verify",
     "VerifyContext",
     "VerifyResult",

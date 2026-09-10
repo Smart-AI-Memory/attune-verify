@@ -1,0 +1,6 @@
+- id: attune-verify
+  name: Verify generated documentation claims
+  entry: attune-verify check
+  language: python
+  types: [markdown]
+  description: Strict claim verification; provide --context with project truth sources.

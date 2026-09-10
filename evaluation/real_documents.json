@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "readme-quickstart",
+      "content": "```python\nfrom attune_verify import verify, VerifyContext\nfrom pathlib import Path\n\nctx = VerifyContext(\n    project_root=Path(\".\"),\n    allowed_help_cmds=frozenset([\"attune\"]),\n)\nresult = verify(generated_content, ctx)\nif not result.ok:\n    for f in result.findings:\n        print(f\"{f.kind}: {f.detail}\")\n```",
+      "expected_error": false,
+      "label_basis": "machine",
+      "split": "calibration",
+      "provenance": {
+        "repository": "https://github.com/Smart-AI-Memory/attune-verify",
+        "commit": "3b9191651ebbd7030d93cd14db009d9cb38f14c8",
+        "path": "README.md",
+        "source_sha256": "2890f056d0c28948e5910e86d598fd9055693b692dc32c2967a93389cd790166",
+        "transformation": "exact Python quick-start excerpt"
+      }
+    },
+    {
+      "id": "readme-quickstart-broken-symbol",
+      "content": "```python\nfrom attune_verify import verify, MissingVerifyContextForEvaluation\nfrom pathlib import Path\n\nctx = MissingVerifyContextForEvaluation(\n    project_root=Path(\".\"),\n    allowed_help_cmds=frozenset([\"attune\"]),\n)\nresult = verify(generated_content, ctx)\nif not result.ok:\n    for f in result.findings:\n        print(f\"{f.kind}: {f.detail}\")\n```",
+      "expected_error": true,
+      "label_basis": "machine",
+      "split": "calibration",
+      "provenance": {
+        "derived_from": "readme-quickstart",
+        "transformation": "replace VerifyContext with absent symbol"
+      }
+    },
+    {
+      "id": "readme-positioning-human-review",
+      "content": "## Part of the attune family\n\n- **attune-rag** grounds generation in accurate retrieved sources (input-side)\n- **attune-verify** checks that named entities in the output actually exist (output-side)\n\nTogether they bracket generation: rag verifies *\"is this claim supported?\"*;\nverify checks *\"does this named thing exist?\"*\n\n",
+      "expected_error": null,
+      "label_basis": "pending-human",
+      "split": "heldout",
+      "reviewer": null,
+      "provenance": {
+        "repository": "https://github.com/Smart-AI-Memory/attune-verify",
+        "commit": "3b9191651ebbd7030d93cd14db009d9cb38f14c8",
+        "path": "README.md",
+        "transformation": "exact positioning excerpt"
+      }
+    }
+  ]
+}

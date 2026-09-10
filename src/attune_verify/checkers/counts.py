@@ -6,6 +6,7 @@ import re
 from typing import Callable, Dict, List, Union
 
 from attune_verify._extract import NumericClaim
+from attune_verify.claims import Claim, record
 from attune_verify.result import Finding, FindingKind
 
 # Values in this range near a source keyword are far more likely to be years
@@ -16,6 +17,8 @@ _YEAR_MIN, _YEAR_MAX = 1900, 2099
 def check_counts(
     claims: List[NumericClaim],
     count_sources: Dict[str, Union[int, Callable[[], int]]],
+    *,
+    observations: list[Claim] | None = None,
 ) -> List[Finding]:
     """Verify numeric claims match count_sources values.
 
@@ -35,12 +38,17 @@ def check_counts(
     Returns:
         List of findings for mismatched counts.
     """
-    if not count_sources:
-        return []
 
     resolved_sources: Dict[str, int] = {}
+    source_errors: dict[str, str] = {}
     for label, value in count_sources.items():
-        resolved_sources[label] = value() if callable(value) else value
+        try:
+            resolved = value() if callable(value) else value
+            if type(resolved) is not int:
+                raise ValueError("Count sources must resolve to integers")
+            resolved_sources[label] = resolved
+        except Exception as exc:  # noqa: BLE001
+            source_errors[label] = str(exc)
 
     findings: List[Finding] = []
 
@@ -50,11 +58,29 @@ def check_counts(
         # of all values lets a claim pass on a coincidental match with an
         # unrelated source (e.g. "12 tests" passing because some other source
         # also equals 12) — cross-contamination.
-        close_label = _find_close_label(claim.context, resolved_sources)
-        if close_label is None:
+        close_label = _source_for_claim(claim, {**count_sources})
+        location = f"line {claim.line}" if claim.line else None
+        if close_label is None or close_label in source_errors:
+            record(
+                observations,
+                "counts",
+                str(claim.value),
+                claim.context,
+                location,
+                unknown=source_errors.get(close_label, "No unambiguous declared count source"),
+            )
             continue
         if _year_like(claim.value) and not _label_follows_number(claim, close_label):
+            record(
+                observations,
+                "counts",
+                str(claim.value),
+                claim.context,
+                location,
+                unknown="Year-like number is not an unambiguous count",
+            )
             continue
+        before = len(findings)
         if claim.value != resolved_sources[close_label]:
             expected = resolved_sources[close_label]
             findings.append(
@@ -69,6 +95,15 @@ def check_counts(
                     severity="error",
                 )
             )
+        record(
+            observations,
+            "counts",
+            str(claim.value),
+            claim.context,
+            location,
+            findings[-1] if len(findings) > before else None,
+            source=close_label,
+        )
     return findings
 
 
@@ -133,3 +168,42 @@ def _label_follows_number(claim: NumericClaim, label: str) -> bool:
         return False
     following = match.group(1)
     return any(_word_matches(w, following) for w in _match_words(label))
+
+
+def _source_for_claim(claim: NumericClaim, sources: dict) -> str | None:
+    """Bind to the nearest label without crossing another numeric claim."""
+    numbers = list(re.finditer(r"\b\d[\d,]*\b", claim.context))
+    number = next(
+        (
+            m
+            for m in numbers
+            if (claim.offset is None or m.start() == claim.offset)
+            and int(m.group().replace(",", "")) == claim.value
+        ),
+        None,
+    )
+    if number is None:
+        return _find_close_label(claim.context, sources)
+    following = next((m.start() for m in numbers if m.start() > number.start()), len(claim.context))
+    preceding = max((m.end() for m in numbers if m.end() <= number.start()), default=0)
+    for text, reverse in (
+        (claim.context[number.end() : following], False),
+        (claim.context[preceding : number.start()], True),
+    ):
+        ranked = []
+        for label in sources:
+            matches = [
+                m
+                for word in _match_words(label)
+                for m in re.finditer(
+                    r"\b" + re.escape(word) + (r"\b" if len(word) <= 3 else ""), text.lower()
+                )
+            ]
+            if matches:
+                distance = min(len(text) - m.end() if reverse else m.start() for m in matches)
+                ranked.append((distance, label))
+        if ranked:
+            closest = min(distance for distance, _ in ranked)
+            labels = [label for distance, label in ranked if distance == closest]
+            return labels[0] if len(labels) == 1 else None
+    return None

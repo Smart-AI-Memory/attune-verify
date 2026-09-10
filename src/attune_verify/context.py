@@ -51,3 +51,4 @@ class VerifyContext:
     judge: Optional["Judge"] = None
     passages: Optional[Union[str, List[str]]] = None
     semantic: bool = False
+    document_path: Optional[Path] = None  # local links resolve relative to this file

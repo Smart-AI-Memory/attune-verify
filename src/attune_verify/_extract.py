@@ -38,6 +38,7 @@ class NumericClaim:
     value: int
     context: str  # surrounding text
     line: Optional[int] = None
+    offset: Optional[int] = None  # number start within context
 
 
 # An opening fence: optional indent, a run of 3+ backticks or tildes, then an
@@ -323,6 +324,7 @@ def extract_numeric_claims(content: str) -> List[NumericClaim]:
     Comma-grouped numbers ("1,234") are one claim with the commas stripped;
     decimal and version components ("94.53", "Python 3.10") are not claims.
     """
+    content = _mask_code(content)
     claims = []
     for match in _NUM_RE.finditer(content):
         line = content[: match.start()].count("\n") + 1
@@ -333,6 +335,7 @@ def extract_numeric_claims(content: str) -> List[NumericClaim]:
                 value=int(match.group(1).replace(",", "")),
                 context=content[start:end].replace("\n", " "),
                 line=line,
+                offset=match.start() - start,
             )
         )
     return claims

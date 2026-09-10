@@ -1,0 +1,173 @@
+* Getting build dependencies for wheel...
+/private/tmp/attune-verify-opportunities/.venv/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+/private/tmp/attune-verify-opportunities/.venv/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:61: SetuptoolsDeprecationWarning: License classifiers are deprecated.
+!!
+
+        ********************************************************************************
+        Please consider removing the following classifiers in favor of a SPDX license expression:
+
+        License :: OSI Approved :: Apache Software License
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  dist._finalize_license_expression()
+/private/tmp/attune-verify-opportunities/.venv/lib/python3.11/site-packages/setuptools/dist.py:765: SetuptoolsDeprecationWarning: License classifiers are deprecated.
+!!
+
+        ********************************************************************************
+        Please consider removing the following classifiers in favor of a SPDX license expression:
+
+        License :: OSI Approved :: Apache Software License
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  self._finalize_license_expression()
+running egg_info
+writing src/attune_verify.egg-info/PKG-INFO
+writing dependency_links to src/attune_verify.egg-info/dependency_links.txt
+writing entry points to src/attune_verify.egg-info/entry_points.txt
+writing requirements to src/attune_verify.egg-info/requires.txt
+writing top-level names to src/attune_verify.egg-info/top_level.txt
+reading manifest file 'src/attune_verify.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'src/attune_verify.egg-info/SOURCES.txt'
+* Building wheel...
+/private/tmp/attune-verify-opportunities/.venv/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+/private/tmp/attune-verify-opportunities/.venv/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:61: SetuptoolsDeprecationWarning: License classifiers are deprecated.
+!!
+
+        ********************************************************************************
+        Please consider removing the following classifiers in favor of a SPDX license expression:
+
+        License :: OSI Approved :: Apache Software License
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  dist._finalize_license_expression()
+/private/tmp/attune-verify-opportunities/.venv/lib/python3.11/site-packages/setuptools/dist.py:765: SetuptoolsDeprecationWarning: License classifiers are deprecated.
+!!
+
+        ********************************************************************************
+        Please consider removing the following classifiers in favor of a SPDX license expression:
+
+        License :: OSI Approved :: Apache Software License
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  self._finalize_license_expression()
+running bdist_wheel
+running build
+running build_py
+copying src/attune_verify/evidence.py -> build/lib/attune_verify
+copying src/attune_verify/checkers/flags.py -> build/lib/attune_verify/checkers
+running egg_info
+writing src/attune_verify.egg-info/PKG-INFO
+writing dependency_links to src/attune_verify.egg-info/dependency_links.txt
+writing entry points to src/attune_verify.egg-info/entry_points.txt
+writing requirements to src/attune_verify.egg-info/requires.txt
+writing top-level names to src/attune_verify.egg-info/top_level.txt
+reading manifest file 'src/attune_verify.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'src/attune_verify.egg-info/SOURCES.txt'
+installing to build/bdist.macosx-11.0-arm64/wheel
+running install
+running install_lib
+creating build/bdist.macosx-11.0-arm64/wheel
+creating build/bdist.macosx-11.0-arm64/wheel/attune_verify
+copying build/lib/attune_verify/files.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+creating build/bdist.macosx-11.0-arm64/wheel/attune_verify/checkers
+copying build/lib/attune_verify/checkers/flags.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/checkers
+copying build/lib/attune_verify/checkers/__init__.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/checkers
+copying build/lib/attune_verify/checkers/links.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/checkers
+copying build/lib/attune_verify/checkers/imports.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/checkers
+copying build/lib/attune_verify/checkers/counts.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/checkers
+copying build/lib/attune_verify/_verify.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/manifest.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/evaluation.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/claims.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/__init__.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/result.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/context.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/cli.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+creating build/bdist.macosx-11.0-arm64/wheel/attune_verify/semantic
+copying build/lib/attune_verify/semantic/rag_adapter.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/semantic
+copying build/lib/attune_verify/semantic/protocol.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/semantic
+copying build/lib/attune_verify/semantic/__init__.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify/semantic
+copying build/lib/attune_verify/py.typed -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/evidence.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/__main__.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+copying build/lib/attune_verify/_extract.py -> build/bdist.macosx-11.0-arm64/wheel/./attune_verify
+running install_egg_info
+Copying src/attune_verify.egg-info to build/bdist.macosx-11.0-arm64/wheel/./attune_verify-0.5.0-py3.11.egg-info
+running install_scripts
+creating build/bdist.macosx-11.0-arm64/wheel/attune_verify-0.5.0.dist-info/WHEEL
+creating '/var/folders/5t/bzsz5qd17pd7h_wwwd5qjbnw0000gn/T/attune-wheel-ly76zbel/dist/.tmp-1ycysnon/attune_verify-0.5.0-py3-none-any.whl' and adding 'build/bdist.macosx-11.0-arm64/wheel' to it
+adding 'attune_verify/__init__.py'
+adding 'attune_verify/__main__.py'
+adding 'attune_verify/_extract.py'
+adding 'attune_verify/_verify.py'
+adding 'attune_verify/claims.py'
+adding 'attune_verify/cli.py'
+adding 'attune_verify/context.py'
+adding 'attune_verify/evaluation.py'
+adding 'attune_verify/evidence.py'
+adding 'attune_verify/files.py'
+adding 'attune_verify/manifest.py'
+adding 'attune_verify/py.typed'
+adding 'attune_verify/result.py'
+adding 'attune_verify/checkers/__init__.py'
+adding 'attune_verify/checkers/counts.py'
+adding 'attune_verify/checkers/flags.py'
+adding 'attune_verify/checkers/imports.py'
+adding 'attune_verify/checkers/links.py'
+adding 'attune_verify/semantic/__init__.py'
+adding 'attune_verify/semantic/protocol.py'
+adding 'attune_verify/semantic/rag_adapter.py'
+adding 'attune_verify-0.5.0.dist-info/licenses/LICENSE'
+adding 'attune_verify-0.5.0.dist-info/METADATA'
+adding 'attune_verify-0.5.0.dist-info/WHEEL'
+adding 'attune_verify-0.5.0.dist-info/entry_points.txt'
+adding 'attune_verify-0.5.0.dist-info/top_level.txt'
+adding 'attune_verify-0.5.0.dist-info/RECORD'
+removing build/bdist.macosx-11.0-arm64/wheel
+Successfully built attune_verify-0.5.0-py3-none-any.whl
+WARNING: The directory '/Users/patrickroebuck/Library/Caches/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Processing /var/folders/5t/bzsz5qd17pd7h_wwwd5qjbnw0000gn/T/attune-wheel-ly76zbel/dist/attune_verify-0.5.0-py3-none-any.whl
+Installing collected packages: attune-verify
+Successfully installed attune-verify-0.5.0
+api.md: PASS (verified) — 2 verified, 0 refuted, 0 unknown; 2 supported claims
+Installed wheel API, CLI, receipts and impact: passed

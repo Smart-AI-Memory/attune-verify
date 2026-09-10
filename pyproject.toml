@@ -30,6 +30,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+attune-verify = "attune_verify.cli:main"
+
 [project.optional-dependencies]
 rag = ["attune-rag>=0.2.0"]
 dev = [
@@ -39,6 +42,8 @@ dev = [
     "ruff>=0.4.0",
     "black>=24.0",
     "build>=1.0",
+    "setuptools>=68.0",
+    "wheel",
     "twine>=5.0",
     "mutmut>=3.0",
 ]
