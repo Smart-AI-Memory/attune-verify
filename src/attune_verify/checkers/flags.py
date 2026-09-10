@@ -8,17 +8,15 @@ import subprocess
 from typing import Dict, FrozenSet, List, Optional
 
 from attune_verify._extract import extract_code_fences, strip_code_fences
+from attune_verify._process import probe_scope, run_probe
 from attune_verify.claims import Claim, record
 from attune_verify.result import Finding, FindingKind
 
 # One inline code span (`mytool --flag`); fences are handled separately.
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
-# A flag token anywhere in code text: long (--flag) or short (-f, -xzf, -name).
-# Stops before "=value"; the negative lookbehind keeps it from matching the tail
-# of a longer flag, a hyphenated word, or a "---" rule. A short flag must start
-# with a LETTER, so a negative number argument ("--threshold -5") is not read as
-# a flag — the one shape where a dash-number is far more often a value.
-_FLAG_TOKEN_RE = re.compile(r"(?<![\w-])(--\w[\w-]*|-[A-Za-z][\w-]*)")
+# Classify the beginning only; the whole shell token is retained as evidence.
+# Short options start with a letter, so negative numbers remain values.
+_FLAG_START_RE = re.compile(r"(?:--\w|-[A-Za-z])")
 # A short flag carrying its value with no space ("-j4", "-O2").
 _ATTACHED_VALUE_RE = re.compile(r"-([A-Za-z])\d+\Z")
 # Fence languages whose content is command lines worth flag-checking.
@@ -31,6 +29,7 @@ def check_flags(
     allowed_help_cmds: FrozenSet[str],
     *,
     claims: list[Claim] | None = None,
+    help_executables: dict[str, str] | None = None,
 ) -> List[Finding]:
     """Verify flags referenced in content exist in command --help output.
 
@@ -41,87 +40,147 @@ def check_flags(
         content: Generated content to scan for flag references.
         help_commands: Pre-captured --help text keyed by command name.
         allowed_help_cmds: Commands safe to invoke at runtime.
+        help_executables: Optional alias-to-executable paths from a manifest.
 
     Returns:
         List of findings for unverifiable or unknown flags.
     """
+    with probe_scope():
+        return _check_flags(
+            content, help_commands, allowed_help_cmds, claims, help_executables or {}
+        )
+
+
+def _check_flags(
+    content: str,
+    help_commands: dict[str, str],
+    allowed_help_cmds: FrozenSet[str],
+    claims: list[Claim] | None,
+    help_executables: dict[str, str],
+) -> list[Finding]:
     findings: List[Finding] = []
-    help_commands = dict(help_commands)  # per-call help cache
+    captured = set(help_commands)
+    help_commands = dict(help_commands)  # includes cached failures (None)
+    failures: dict[str, str] = {}
     commands = set(help_commands) | set(allowed_help_cmds)
+
+    def check_line(text: str, evidence: str, location: str, preceding: str = "") -> None:
+        cmd = _command(text, commands)
+        if cmd == "unknown" and text.lstrip().startswith("-"):
+            cmd = _guess_command(preceding)
+        for flag in _flag_tokens(text):
+            finding = _verify_flag(
+                flag,
+                cmd,
+                evidence,
+                help_commands,
+                allowed_help_cmds,
+                help_executables=help_executables,
+                failures=failures,
+            )
+            if finding is not None:
+                finding = Finding(
+                    finding.kind, finding.detail, finding.evidence, location, finding.severity
+                )
+                findings.append(finding)
+            source = cmd if cmd in captured else help_executables.get(cmd, cmd)
+            record(claims, "flags", f"{cmd} {flag}", evidence, location, finding, source=source)
+
     # Inline spans: `--flag` alone or a whole command in one span
     # (`mytool --flag`). Fence bodies are stripped first so they are never
     # double-scanned as inline code.
     prose = strip_code_fences(content)
     for match in _INLINE_CODE_RE.finditer(prose):
         span = match.group(1)
-        for flag_match in _FLAG_TOKEN_RE.finditer(span):
-            cmd = _command(span, commands)
-            if cmd == "unknown" and span.lstrip().startswith("-"):
-                # Bare `--flag` span: the command is named in the prose
-                # before it ("Run mytool with `--flag`").
-                cmd = _guess_command(prose[max(0, match.start() - 30) : match.start()])
-            finding = _verify_flag(
-                flag_match.group(1), cmd, f"`{span}`", help_commands, allowed_help_cmds
-            )
-            location = f"line {prose[:match.start()].count(chr(10)) + 1}"
-            if finding is not None:
-                finding = Finding(
-                    finding.kind, finding.detail, finding.evidence, location, finding.severity
-                )
-                findings.append(finding)
-            record(
-                claims,
-                "flags",
-                f"{cmd} {flag_match.group(1)}",
-                f"`{span}`",
-                location,
-                finding,
-                source=cmd,
-            )
+        check_line(
+            span,
+            f"`{span}`",
+            f"line {prose[:match.start()].count(chr(10)) + 1}",
+            prose[max(0, match.start() - 30) : match.start()],
+        )
     # Shell fences: each line is a command whose flags are claims too.
     for fence in extract_code_fences(content):
         if fence.language not in _SHELL_LANGS:
             continue
         for index, line in enumerate(fence.content.splitlines(), start=1):
             command_line = line.strip().lstrip("$").strip()
-            for flag_match in _FLAG_TOKEN_RE.finditer(command_line):
-                cmd = _command(command_line, commands)
-                finding = _verify_flag(
-                    flag_match.group(1), cmd, command_line, help_commands, allowed_help_cmds
-                )
-                location = f"line {(fence.line or 0) + index}"
-                if finding is not None:
-                    finding = Finding(
-                        finding.kind, finding.detail, finding.evidence, location, finding.severity
-                    )
-                    findings.append(finding)
-                record(
-                    claims,
-                    "flags",
-                    f"{cmd} {flag_match.group(1)}",
-                    command_line,
-                    location,
-                    finding,
-                    source=cmd,
-                )
+            check_line(command_line, command_line, f"line {(fence.line or 0) + index}")
     return findings
+
+
+def _flag_tokens(text: str) -> list[str]:
+    """Read complete options, omitting attached values and operands after --."""
+    text = _without_shell_comment(text)
+    try:
+        words = shlex.split(text)
+    except ValueError:
+        # Malformed quoting still exposes claims, with an unknown command.
+        words = text.split()
+    flags = []
+    for word in words:
+        if word == "--":
+            break
+        if _FLAG_START_RE.match(word):
+            flags.append(word.partition("=")[0])
+    return flags
+
+
+def _without_shell_comment(text: str) -> str:
+    """A shell comment starts at an unquoted word boundary, not inside argv."""
+    quote = None
+    escaped = False
+    in_word = False
+    for index, char in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if quote == "'":
+            if char == "'":
+                quote = None
+            continue
+        if char == "\\":
+            escaped = True
+            in_word = True
+            continue
+        if quote == '"':
+            if char == '"':
+                quote = None
+            continue
+        if char in "\"'":
+            quote = char
+            in_word = True
+        elif char.isspace():
+            in_word = False
+        elif char == "#" and not in_word:
+            return text[:index]
+        else:
+            in_word = True
+    return text
 
 
 def _verify_flag(
     flag: str,
     cmd: str,
     evidence: str,
-    help_commands: Dict[str, str],
+    help_commands: dict[str, str | None],
     allowed_help_cmds: FrozenSet[str],
+    *,
+    help_executables: dict[str, str] | None = None,
+    failures: dict[str, str] | None = None,
 ) -> Optional[Finding]:
     """Check one flag against its command's help; None when it verifies."""
-    help_text = _get_help(cmd, help_commands, allowed_help_cmds)
+    help_text = _get_help(
+        cmd, help_commands, allowed_help_cmds, help_executables=help_executables, failures=failures
+    )
     if help_text is None:
+        reason = (failures or {}).get(cmd)
         return Finding(
             kind=FindingKind.UNKNOWN_FLAG,
             detail=(
                 f"Flag '{flag}' could not be verified "
-                f"(no --help output available for command '{cmd}')"
+                f"(no --help output available for command '{cmd}'"
+                + (f": {reason}" if reason else "")
+                + ")"
             ),
             evidence=evidence,
             severity="warning",
@@ -193,7 +252,10 @@ def _flag_in_help(flag: str, help_text: str) -> bool:
     inside ``--verbose``, and the leading bound stops it matching the tail of
     ``--v``, which would verify a short flag the command does not have.
     """
-    return re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", help_text) is not None
+    return (
+        re.search(r"(?<![\w.\-/:])" + re.escape(flag) + r"(?=$|[\s=,\[\](){}<>])", help_text)
+        is not None
+    )
 
 
 def _guess_command(preceding: str) -> str:
@@ -208,8 +270,11 @@ def _guess_command(preceding: str) -> str:
 
 def _get_help(
     cmd: str,
-    help_commands: Dict[str, str],
+    help_commands: dict[str, str | None],
     allowed_help_cmds: FrozenSet[str],
+    *,
+    help_executables: dict[str, str] | None = None,
+    failures: dict[str, str] | None = None,
 ) -> str | None:
     """Return help text, or None if the command cannot be introspected.
 
@@ -222,16 +287,17 @@ def _get_help(
         return help_commands[cmd]
     if cmd in allowed_help_cmds:
         try:
-            result = subprocess.run(
-                [cmd, "--help"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
+            executable = (help_executables or {}).get(cmd, cmd)
+            result = run_probe([executable, "--help"])
+        except (OSError, subprocess.TimeoutExpired, RuntimeError, ValueError, TypeError) as exc:
+            help_commands[cmd] = None
+            if failures is not None:
+                failures[cmd] = str(exc)
             return None
         if result.returncode:
+            help_commands[cmd] = None
+            if failures is not None:
+                failures[cmd] = f"help command exited with status {result.returncode}"
             return None
         help_commands[cmd] = result.stdout + result.stderr
         return help_commands[cmd]
@@ -244,6 +310,7 @@ def _command(text: str, declared: set[str]) -> str:
     Complex shell syntax remains unknown rather than being attributed to the
     wrong command. Never execute generated argument strings.
     """
+    text = _without_shell_comment(text)
     try:
         words = shlex.split(text)
     except ValueError:
@@ -252,5 +319,12 @@ def _command(text: str, declared: set[str]) -> str:
         return "unknown"
     if any(token in text for token in (";", "|", "&&", "$(", "`")):
         return "unknown"
-    candidates = [cmd for cmd in declared if words[: len(shlex.split(cmd))] == shlex.split(cmd)]
-    return max(candidates, key=lambda cmd: len(shlex.split(cmd))) if candidates else words[0]
+    candidates = []
+    for cmd in declared:
+        try:
+            prefix = shlex.split(cmd)
+        except ValueError:
+            continue
+        if prefix and words[: len(prefix)] == prefix:
+            candidates.append((len(prefix), cmd))
+    return max(candidates)[1] if candidates else words[0]

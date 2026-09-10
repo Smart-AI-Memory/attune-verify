@@ -10,6 +10,7 @@ from attune_verify._extract import (
     extract_links,
     extract_numeric_claims,
 )
+from attune_verify._process import ProbeBudget, probe_scope
 from attune_verify.checkers.counts import check_counts
 from attune_verify.checkers.flags import check_flags
 from attune_verify.checkers.imports import check_imports
@@ -41,10 +42,17 @@ def verify(content: str, context: VerifyContext) -> VerifyResult:
     result = VerifyResult()
 
     # --- Deterministic checkers ---
-    _run_checker(result, "imports", _check_imports, content, context)
-    _run_checker(result, "flags", _check_flags, content, context)
-    _run_checker(result, "links", _check_links, content, context)
-    _run_checker(result, "counts", _check_counts, content, context)
+    with probe_scope(
+        ProbeBudget(
+            max_attempts=context.max_probe_attempts,
+            timeout_seconds=context.probe_timeout_seconds,
+            max_output_bytes=context.max_probe_output_bytes,
+        )
+    ):
+        _run_checker(result, "imports", _check_imports, content, context)
+        _run_checker(result, "flags", _check_flags, content, context)
+        _run_checker(result, "links", _check_links, content, context)
+        _run_checker(result, "counts", _check_counts, content, context)
 
     # --- Semantic layer (opt-in) ---
     if context.semantic:
@@ -71,6 +79,7 @@ def _check_flags(content: str, context: VerifyContext) -> List[Finding]:
         content,
         help_commands=context.help_commands,
         allowed_help_cmds=context.allowed_help_cmds,
+        help_executables=context.help_executables,
         claims=claims,
     )
     return Observations(findings, claims)
@@ -122,7 +131,20 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
     """Run the semantic layer if a judge is available."""
     from attune_verify.semantic.protocol import Judge  # noqa: PLC0415
 
-    if context.judge is None:
+    passages = context.passages
+    if isinstance(passages, str):
+        passages = passages.strip()
+    elif isinstance(passages, list):
+        if not all(isinstance(p, str) for p in passages):
+            passages = None
+        else:
+            passages = [p.strip() for p in passages if p.strip()]
+    else:
+        passages = None
+
+    if not content.strip():
+        detail = "Semantic verification requires nonempty content; empty input has no claims"
+    elif context.judge is None:
         detail = (
             "Semantic layer requested (context.semantic=True) "
             "but no judge was provided in VerifyContext.judge"
@@ -133,7 +155,7 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
             f"provided judge ({type(context.judge).__name__}) does not "
             "satisfy the Judge protocol (missing a compatible score())"
         )
-    elif not context.passages:
+    elif not passages:
         # Without independent source passages the judge would score the
         # content against itself — vacuously faithful, so skip instead.
         detail = (
@@ -158,7 +180,7 @@ def _run_semantic(result: VerifyResult, content: str, context: VerifyContext) ->
         verdict = context.judge.score(
             query="Verify this generated content for faithfulness",
             answer=content,
-            passages=context.passages,
+            passages=passages,
         )
         result.semantic_ran = True
         if not isinstance(verdict.issues, list) or not all(

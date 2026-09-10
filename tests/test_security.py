@@ -1,6 +1,5 @@
 """Security boundary tests (T3 acceptance criterion 5)."""
 
-import subprocess
 from unittest.mock import patch
 
 from attune_verify import VerifyContext, verify
@@ -15,21 +14,19 @@ def test_verify_does_not_run_generated_code():
             "```",
         ]
     )
-    with patch("attune_verify.checkers.imports._resolves", return_value=True):
+    with (
+        patch("attune_verify.checkers.imports._resolves", return_value=True),
+        patch("attune_verify._process.subprocess.Popen") as spawn,
+    ):
         result = verify(suspicious, VerifyContext())
+    spawn.assert_not_called()
     assert result is not None  # No exception = no execution
 
 
 def test_no_help_for_undeclared_command():
-    content = "Use --dangerous-flag to activate the feature."
+    content = "Use `undeclared-command --dangerous-flag` to activate the feature."
     ctx = VerifyContext(allowed_help_cmds=frozenset())
-    called = []
-    original = subprocess.run
-
-    def tracking(args, **kw):
-        called.append(list(args) if isinstance(args, (list, tuple)) else args)
-        return original(args, **kw)
-
-    with patch("subprocess.run", side_effect=tracking):
-        verify(content, ctx)
-    assert all("--help" not in c for c in called), f"Unexpected --help: {called}"
+    with patch("attune_verify._process.subprocess.Popen") as spawn:
+        result = verify(content, ctx)
+    spawn.assert_not_called()
+    assert result.claims[0].status == "unknown"

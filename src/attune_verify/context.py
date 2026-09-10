@@ -40,6 +40,11 @@ class VerifyContext:
             content against. Required for the semantic layer — judging content
             against itself is vacuous, so when absent and semantic=True,
             verify degrades gracefully (warning, not error).
+        help_executables: Explicit executable paths keyed by allowed command
+            alias. Manifest-relative paths resolve beside the manifest.
+        max_probe_attempts: Maximum distinct subprocess attempts per operation.
+        probe_timeout_seconds: Aggregate subprocess time budget in seconds.
+        max_probe_output_bytes: Aggregate captured subprocess output limit.
         semantic: Enable the LLM semantic layer. Requires a judge and passages.
     """
 
@@ -52,3 +57,7 @@ class VerifyContext:
     passages: Optional[Union[str, List[str]]] = None
     semantic: bool = False
     document_path: Optional[Path] = None  # local links resolve relative to this file
+    help_executables: Dict[str, str] = field(default_factory=dict)
+    max_probe_attempts: int = 64
+    probe_timeout_seconds: float = 30.0
+    max_probe_output_bytes: int = 1_048_576

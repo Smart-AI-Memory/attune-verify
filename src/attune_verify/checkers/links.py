@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from attune_verify._extract import MarkdownLink
 from attune_verify.claims import Claim, record
@@ -51,11 +51,14 @@ def _check_links(
                 )
             )
             continue
-        # Skip external URLs and anchors-only
-        if target.startswith(("http://", "https://", "mailto:", "#")):
+        # URL components have meaning before filesystem resolution. In
+        # particular a query is not part of a filename and schemes ignore case.
+        if "\x00" in target:
+            raise ValueError("Link target contains NUL")
+        parsed = urlsplit(target)
+        if parsed.scheme or parsed.netloc or target.startswith("#"):
             continue
-        # Strip anchor fragments for file existence check
-        path_part = target.split("#")[0]
+        path_part = parsed.path
         if not path_part:
             continue
         if project_root is None:
@@ -123,21 +126,8 @@ def _evidence(link: MarkdownLink) -> str:
 
 
 def _resolve_target(root: Path, rel: str) -> Path:
-    """Resolve a link target under root, honouring percent-encoding.
-
-    A link to a file whose name contains a space is written ``a%20b.md``, and
-    checking that literally flagged a file that exists. The raw form is tried
-    first, so a file genuinely named ``a%20b.md`` still resolves; the decoded
-    form is the fallback, and is only preferred when it exists.
-    """
-    resolved = (root / rel).resolve()
-    if resolved.exists():
-        return resolved
-    decoded = unquote(rel)
-    if decoded == rel:
-        return resolved
-    decoded_path = (root / decoded).resolve()
-    return decoded_path if decoded_path.exists() else resolved
+    """Resolve the decoded URL path, never an alternative existing spelling."""
+    return (root / unquote(rel, errors="strict")).resolve()
 
 
 def check_links(
@@ -150,14 +140,29 @@ def check_links(
     """Check local files and explicitly account for unsupported URL/anchor checks."""
     findings = []
     for link in links:
-        checked = _check_links([link], project_root, document_path)
-        findings.extend(checked)
         target = link.target or f"reference:{link.label}"
         unknown = None
-        if link.target and link.target.startswith(("http://", "https://", "mailto:")):
-            unknown = "External targets are not fetched"
-        elif link.target and "#" in link.target:
-            unknown = "File existence does not verify a heading fragment"
+        try:
+            checked = _check_links([link], project_root, document_path)
+            if link.target:
+                parsed = urlsplit(link.target)
+                if parsed.scheme or parsed.netloc:
+                    unknown = "External targets are not fetched"
+                elif "#" in link.target:
+                    unknown = "File existence does not verify a heading fragment"
+        except (ValueError, OSError, RuntimeError) as exc:
+            # Invalid URLs, NUL paths, permission errors and symlink loops
+            # belong to this claim. They must not discard earlier refutations.
+            checked = [
+                Finding(
+                    kind=FindingKind.DEAD_LINK,
+                    detail=f"Link '{target}' cannot be verified: {exc}",
+                    evidence=_evidence(link),
+                    location=f"line {link.line}" if link.line else None,
+                    severity="warning",
+                )
+            ]
+        findings.extend(checked)
         record(
             claims,
             "links",

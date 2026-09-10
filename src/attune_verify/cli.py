@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 from attune_verify import VerifyContext, verify
 from attune_verify.evaluation import evaluate
 from attune_verify.evidence import capture, impact
-from attune_verify.files import contained, read_text, write_json
+from attune_verify.files import contained, json_text, read_json, read_text, same_file, write_json
 from attune_verify.manifest import load_context
 
 
@@ -48,19 +47,20 @@ def main(argv: list[str] | None = None) -> int:
             inputs.append(args.input)
         if args.context:
             inputs.append(args.context)
-        if args.output and args.output.resolve() in {p.resolve() for p in inputs}:
+        if args.output and any(same_file(args.output, path) for path in inputs):
             raise ValueError("Output must not overwrite an input document or context")
         if args.command != "check":
             if args.command == "receipts":
                 report = capture(args.files, ctx)
             else:
-                payload = json.loads(read_text(args.input))
+                payload = read_json(args.input)
                 report = (
                     impact(payload, ctx) if args.command == "impact" else evaluate(payload, ctx)
                 )
+            serialized = json_text(report)
             if args.output:
                 write_json(args.output, report, root=Path.cwd())
-            print(json.dumps(report, indent=2))
+            print(serialized)
             return 1 if report.get("needs_recheck") else 0
         documents = []
         for filename in args.files:
@@ -79,10 +79,11 @@ def main(argv: list[str] | None = None) -> int:
             "documents": documents,
             "passed": all(doc["passed"] for doc in documents),
         }
+        serialized = json_text(report)
         if args.output:
             write_json(args.output, report, root=Path.cwd())
         if args.format == "json":
-            print(json.dumps(report, indent=2))
+            print(serialized)
         else:
             for doc in documents:
                 coverage = doc["coverage"]

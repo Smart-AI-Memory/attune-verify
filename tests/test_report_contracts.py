@@ -230,7 +230,7 @@ def test_claim_observations_keep_sources_and_locations(tmp_path):
             "`tool input --verbose`",
             "tool",
         ),
-        ("intro\nThere are 12 widgets.", "counts", "12", "intro There are 12 widgets.", "widgets"),
+        ("intro\nThere are 12 widgets.", "counts", "12", "intro\nThere are 12 widgets.", "widgets"),
     ],
 )
 def test_positive_claim_schema(content, kind, subject, evidence, source):

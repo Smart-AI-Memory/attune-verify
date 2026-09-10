@@ -24,7 +24,7 @@ from attune_verify.result import (
     raise_if_failed,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 __all__ = [
     "Claim",
     "ClaimStatus",

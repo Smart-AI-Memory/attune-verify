@@ -1,6 +1,8 @@
 name: mutation
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -11,6 +13,7 @@ concurrency:
 jobs:
   mutation:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,7 +30,7 @@ jobs:
         run: pip uninstall -y attune-verify
       - name: Run mutation testing
         run: |
-          mutmut run
+          mutmut run --max-children 1
           mutmut export-cicd-stats
       - name: Gate on mutation score
         run: python scripts/mutation_gate.py 0.75
@@ -35,3 +38,9 @@ jobs:
         if: always()
         run: |
           mutmut results | grep ': survived' || true
+      - name: Retain mutation evidence
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: mutation-evidence
+          path: mutants/mutmut-cicd-stats.json
