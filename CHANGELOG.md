@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-10
+
+Adds explicit verification coverage, publication tooling, and Python API evidence
+receipts while preserving the legacy error-only API.
+
 - Resolve named Python imports and report malformed explicit Python fences.
 - Fix multi-count source binding, command/argument attribution, and negative
   semantic verdicts with empty explanations.
