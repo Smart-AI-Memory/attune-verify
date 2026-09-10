@@ -1,5 +1,7 @@
 """Regression receipts for Markdown extraction and local URL verification."""
 
+import os
+
 import pytest
 
 from attune_verify import ClaimStatus, VerifyContext, verify
@@ -115,11 +117,22 @@ def test_percent_encoding_uses_url_destination_not_first_existing_spelling(tmp_p
     assert verify("[doc](a%20b.md)", VerifyContext(project_root=tmp_path)).passes()
 
 
-def test_local_query_checks_path_and_encoded_question_mark_is_a_filename(tmp_path):
+def test_local_query_checks_path(tmp_path):
     (tmp_path / "real.md").touch()
-    (tmp_path / "a?b.md").touch()
-    for target in ("real.md?raw=true", "a%3Fb.md"):
-        assert verify(f"[doc]({target})", VerifyContext(project_root=tmp_path)).passes()
+    assert verify("[doc](real.md?raw=true)", VerifyContext(project_root=tmp_path)).passes()
+
+
+def test_encoded_question_mark_is_path_not_query(tmp_path):
+    # A literal percent-encoded spelling must never hide the decoded target.
+    (tmp_path / "a%3Fb.md").touch()
+    context = VerifyContext(project_root=tmp_path)
+    assert not verify("[doc](a%3Fb.md)", context).passes()
+    assert verify("[doc](a%253Fb.md)", context).passes()
+    if os.name != "nt":
+        # Windows cannot create question marks in file names; the rejection
+        # above is its correct result for this URL path.
+        (tmp_path / "a?b.md").touch()
+        assert verify("[doc](a%3Fb.md)", context).passes()
 
 
 @pytest.mark.parametrize(

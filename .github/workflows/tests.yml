@@ -43,11 +43,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          extra=()
+          set -- --wheel dist/*.whl --sdist dist/*.tar.gz --report evidence/smoke.json
           if [[ '${{ matrix.os }}' == 'ubuntu-latest' && '${{ matrix.python-version }}' == '3.12' ]]; then
-            extra+=(--check-rag-extra)
+            set -- "$@" --check-rag-extra
           fi
-          python scripts/wheel_smoke.py --wheel dist/*.whl --sdist dist/*.tar.gz --report evidence/smoke.json "${extra[@]}"
+          python scripts/wheel_smoke.py "$@"
       - name: Retain installed artifact evidence
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.1
         with:

@@ -153,14 +153,36 @@ def test_reports_roundtrip_on_ascii_streams():
     assert json.loads(serialized.encode("ascii")) == payload
 
 
-def test_deep_report_serialization_preserves_existing_file(tmp_path):
+def test_deep_report_serialization_respects_native_limits(tmp_path):
     target = tmp_path / "report.json"
     target.write_text("preserve report", encoding="utf-8")
     value = []
     for _ in range(2000):
         value = [value]
-    with pytest.raises(ValueError, match="nesting"):
+    try:
+        serialized = json.dumps(value, indent=2, ensure_ascii=True, allow_nan=False)
+    except RecursionError:
+        with pytest.raises(ValueError, match="nesting"):
+            write_json(target, value, root=tmp_path)
+        assert target.read_text(encoding="utf-8") == "preserve report"
+    else:
         write_json(target, value, root=tmp_path)
+        assert target.read_text(encoding="utf-8") == serialized + "\n"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_report_recursion_failure_preserves_existing_file(tmp_path, monkeypatch):
+    import attune_verify.files as files
+
+    target = tmp_path / "report.json"
+    target.write_text("preserve report", encoding="utf-8")
+
+    def fail_serialization(*args, **kwargs):
+        raise RecursionError("injected serializer recursion limit")
+
+    monkeypatch.setattr(files.json, "dumps", fail_serialization)
+    with pytest.raises(ValueError, match="nesting"):
+        write_json(target, {"normal": "value"}, root=tmp_path)
     assert target.read_text(encoding="utf-8") == "preserve report"
     assert list(tmp_path.iterdir()) == [target]
 

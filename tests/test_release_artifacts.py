@@ -4,7 +4,10 @@ import copy
 import importlib.util
 import io
 import json
+import os
+import subprocess
 import tarfile
+import textwrap
 import zipfile
 from pathlib import Path
 
@@ -249,3 +252,56 @@ def test_ci_smokes_existing_pair_and_optional_extra():
     assert text.count("python -m build --no-isolation") == 1
     assert "--wheel dist/*.whl --sdist dist/*.tar.gz" in text
     assert "--check-rag-extra" in text
+
+
+@pytest.mark.skipif(not Path("/bin/bash").is_file(), reason="requires the platform /bin/bash")
+@pytest.mark.parametrize(
+    "runner,version,extra",
+    [
+        ("macos-latest", "3.12", False),
+        ("ubuntu-latest", "3.10", False),
+        ("ubuntu-latest", "3.11", False),
+        ("ubuntu-latest", "3.12", True),
+        ("ubuntu-latest", "3.13", False),
+        ("windows-latest", "3.12", False),
+    ],
+)
+def test_actual_ci_smoke_shell_passes_all_arguments(tmp_path, runner, version, extra):
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+    step = workflow.split("      - name: Exact installed wheel and sdist smoke\n", 1)[1]
+    step = step.split("      - name:", 1)[0]
+    script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+    script = script.replace("${{ matrix.os }}", runner)
+    script = script.replace("${{ matrix.python-version }}", version)
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    python = binaries / "python"
+    python.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+    python.chmod(0o700)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    wheel = "attune_verify-0.6.1-py3-none-any.whl"
+    sdist = "attune_verify-0.6.1.tar.gz"
+    (dist / wheel).touch()
+    (dist / sdist).touch()
+    result = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": str(binaries) + os.pathsep + os.environ.get("PATH", "")},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = [
+        "scripts/wheel_smoke.py",
+        "--wheel",
+        f"dist/{wheel}",
+        "--sdist",
+        f"dist/{sdist}",
+        "--report",
+        "evidence/smoke.json",
+    ]
+    if extra:
+        expected.append("--check-rag-extra")
+    assert result.stdout.splitlines() == expected

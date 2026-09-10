@@ -17,7 +17,7 @@ def process_api():
 def test_attempt_limit_caches_successes_and_rejects_new_work():
     ProbeBudget, ProbeError, scope, run = process_api()
     budget = ProbeBudget(max_attempts=1)
-    argv = [sys.executable, "-c", "print('hello')"]
+    argv = [sys.executable, "-c", "import os; os.write(1, b'hello\\n')"]
     with scope(budget):
         assert run(argv).stdout == "hello\n"
         assert run(argv).stdout == "hello\n"
