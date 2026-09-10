@@ -47,6 +47,9 @@ contract and strict `passes()` policy remain distinct.
 - Explicit Python API command-to-executable mapping through `help_executables`.
 - Maintenance regressions for original review failures, plus a bounded Markdown
   scanner and installed wheel/sdist checks with positive and negative CLI cases.
+- Linux mutation worker memory limits and retained process diagnostics. Resource
+  stops remain non-kills, forced termination fails, and the workflow reserves
+  time to export partial evidence after interruption.
 - [Release acceptance and evidence requirements](docs/reliability.md), including
   exact artifact hashes, source/ref identity, offline RAG factory construction,
   and required human approval before PyPI publication. The required reviewer

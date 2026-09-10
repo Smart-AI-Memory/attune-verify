@@ -29,16 +29,25 @@ jobs:
         # (keeping its deps) so mutations actually take effect.
         run: pip uninstall -y attune-verify
       - name: Run mutation testing
+        # Leave time inside the job limit to retain evidence from a stalled run.
+        timeout-minutes: 40
         env:
           ATTUNE_MUTATION_TMP_ROOT: ${{ runner.temp }}/attune-mutation
         run: |
           mkdir -p "$ATTUNE_MUTATION_TMP_ROOT"
-          mutmut run --max-children 4
-          mutmut export-cicd-stats
+          python scripts/run_mutation.py --max-worker-rss-mib 1024
+      - name: Export mutation evidence
+        if: always()
+        timeout-minutes: 1
+        run: |
+          mkdir -p mutation-diagnostics
+          mutmut export-cicd-stats 2>&1 | tee mutation-diagnostics/export.log
       - name: Gate on mutation score
+        if: always()
         run: python scripts/mutation_gate.py 0.75
       - name: Show survivors (informational)
         if: always()
+        timeout-minutes: 1
         run: |
           mutmut results | grep ': survived' || true
       - name: Retain mutation evidence
@@ -46,4 +55,8 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: mutation-evidence
-          path: mutants/mutmut-cicd-stats.json
+          path: |
+            mutants/**/*.meta
+            mutants/mutmut-stats.json
+            mutants/mutmut-cicd-stats.json
+            mutation-diagnostics/

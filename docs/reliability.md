@@ -145,6 +145,20 @@ runs; a successful local macOS run does not establish Linux or Windows behavior.
 Corpus precision/recall and mutation gates apply to their configured scopes and
 must not be presented as representative field accuracy.
 
+The Linux mutation workflow runs four workers and stops a mutant worker whose
+observed resident memory exceeds 1 GiB. The runner validates process ownership
+before signalling through a pidfd. A resource stop counts as a timeout, never a
+killed mutant; forced termination fails the run. This polled limit bounds runaway
+workers but is not a hard memory reservation. The runner records worker identity,
+elapsed time, CPU, memory, and resource-stop events. It disables ordinary core
+files and records the kernel core-dump configuration; a host pipe handler can
+override that suppression.
+
+The mutation step has a 40-minute deadline inside the 45-minute job, leaving time
+for unconditional export and upload of partial metadata and diagnostics. An
+interrupted or incomplete run cannot satisfy release acceptance. A host failure
+can still prevent upload; missing evidence never establishes success.
+
 Publication retains the `pypi` environment reference. The initial live audit on
 2026-09-10 found no reviewer protection. With owner authorization, the environment
 was updated and verified to require `silversurfer562` as its human reviewer.
